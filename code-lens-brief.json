@@ -1,0 +1,265 @@
+{
+  "project": {
+    "name": "CodeLens",
+    "tagline": "Where Engineers Are Forged Under Pressure",
+    "description": "A real-time collaborative code interview platform where an AI silently observes the entire coding session and generates a structured candidate evaluation at the end.",
+    "owner": "SkillSync",
+    "scope": "Weekend MVP",
+    "goal": "By Sunday evening, two people join a room, one sets a coding problem with test cases, the other solves it in C/C++/Python/JS with real execution, and both walk away with an AI debrief of the entire session."
+  },
+
+  "concept": {
+    "one_liner": "LeetCode meets Google Docs meets an AI interviewer taking notes.",
+    "how_it_differs_from_leetcode": {
+      "leetcode": "Tests output — did the code pass? You're alone. Binary pass/fail.",
+      "crucible": "Evaluates process — how did you get there? Interviewer watches live. AI generates nuanced behavioral analysis."
+    },
+    "flow": [
+      "Interviewer creates a room and configures the problem (description, examples, hidden test cases).",
+      "Interviewer shares the room link with the candidate.",
+      "Candidate joins, selects their language (C / C++ / Python / JavaScript), and starts coding.",
+      "Both see the same code editor in real-time. The candidate writes and runs code against test cases.",
+      "Code executes server-side via Judge0 or Piston API. Results appear instantly: passed, failed, TLE, runtime error.",
+      "The AI silently records everything: keystrokes, deletions, pauses, run attempts, test case iterations.",
+      "When the session ends, both parties receive a detailed AI-generated debrief."
+    ]
+  },
+
+  "screens": {
+    "landing_page": {
+      "description": "Clean, minimal. A single 'Create Room' button for the interviewer. No signup, no auth, no friction."
+    },
+    "room_setup": {
+      "description": "Interviewer-only screen to configure the problem before sharing the link.",
+      "elements": [
+        "Problem title and description (markdown supported)",
+        "Input/output examples (visible to candidate)",
+        "Hidden test cases (candidate sees pass/fail, not the actual test)",
+        "Time limit for the session (optional)",
+        "'Copy Room Link' button to share with the candidate"
+      ]
+    },
+    "room": {
+      "description": "The main coding environment. Split layout, shared between both users in real-time.",
+      "layout": {
+        "left_panel": {
+          "name": "Code Editor",
+          "elements": [
+            "Monaco Editor (the engine behind VS Code)",
+            "Language dropdown at the top: C, C++, Python, JavaScript",
+            "Syntax highlighting, autocomplete, bracket matching",
+            "Every keystroke syncs in real-time between both users via Yjs/WebSocket"
+          ]
+        },
+        "right_panel": {
+          "name": "Problem & Results",
+          "elements": [
+            "Top half: Problem statement with examples",
+            "Bottom half: Test case results table (input, expected output, actual output, pass/fail status)"
+          ]
+        },
+        "top_bar": {
+          "elements": [
+            "Room ID and session timer",
+            "Language selector",
+            "'Run Code' button (executes against visible test cases)",
+            "'Submit' button (executes against all test cases including hidden ones)",
+            "'End Session' button (interviewer only — triggers AI debrief generation)"
+          ]
+        }
+      }
+    },
+    "debrief_page": {
+      "description": "After the session ends, both parties are redirected here. AI-generated evaluation displayed in a clean, printable format. Shareable via a unique URL."
+    }
+  },
+
+  "tech_stack": {
+    "frontend": "Next.js + Tailwind CSS",
+    "code_editor": "Monaco Editor (@monaco-editor/react)",
+    "realtime_sync": "Yjs + y-monaco + y-websocket (CRDT-based collaboration)",
+    "backend": "Next.js API Routes + Node.js WebSocket server",
+    "code_execution": {
+      "primary": "Judge0 API (free hosted tier)",
+      "fallback": "Piston API (self-hosted alternative)",
+      "why_judge0": "Free, hosted code execution engine. Handles compilation, sandboxing, execution, timeout enforcement, and memory limits out of the box. Supports 60+ languages. Send code + stdin via API, get stdout + stderr + execution metadata back. No Docker setup needed."
+    },
+    "ai_evaluation": "Claude API or OpenAI API — single call at session end with full session transcript",
+    "supported_languages": ["C", "C++", "Python 3", "JavaScript (Node.js)"],
+    "state_management": "In-memory (JavaScript Map on the server, no database)",
+    "auth": "None — room links are the access control"
+  },
+
+  "data_model": {
+    "note": "No database. Everything lives in a JavaScript Map on the server.",
+    "room": {
+      "roomId": "string — unique room identifier (nanoid or UUID)",
+      "problem": {
+        "title": "string",
+        "description": "string (markdown)",
+        "examples": [
+          {
+            "input": "string",
+            "output": "string",
+            "explanation": "string (optional)"
+          }
+        ],
+        "hiddenTests": [
+          {
+            "input": "string",
+            "expectedOutput": "string"
+          }
+        ]
+      },
+      "language": "string — currently selected language (c | cpp | python | javascript)",
+      "participants": [
+        {
+          "socketId": "string",
+          "role": "interviewer | candidate",
+          "joinedAt": "timestamp"
+        }
+      ],
+      "timeline": [
+        {
+          "timestamp": "ISO 8601",
+          "event": "keystroke | deletion | run | submit | pause | language_change",
+          "data": "object — event-specific payload"
+        }
+      ],
+      "code": "string — current editor state (synced via Yjs)",
+      "runs": [
+        {
+          "timestamp": "ISO 8601",
+          "code": "string",
+          "language": "string",
+          "testResults": [
+            {
+              "input": "string",
+              "expectedOutput": "string",
+              "actualOutput": "string",
+              "status": "passed | failed | TLE | runtime_error | compilation_error"
+            }
+          ]
+        }
+      ],
+      "status": "waiting | active | ended",
+      "startedAt": "timestamp",
+      "endedAt": "timestamp | null",
+      "debrief": "object | null — AI-generated evaluation, populated after session ends"
+    }
+  },
+
+  "ai_debrief_spec": {
+    "description": "The AI receives the complete session transcript at session end and generates a structured evaluation.",
+    "input_to_ai": {
+      "problem": "The full problem statement and test cases",
+      "timeline": "Complete array of timestamped events (keystrokes, runs, pauses, deletions)",
+      "final_code": "The last version of the code in the editor",
+      "run_history": "All code execution attempts with results",
+      "session_duration": "Total time from start to end",
+      "language_used": "Selected language(s)"
+    },
+    "output_sections": {
+      "approach_analysis": [
+        "How did the candidate start? (Jumped into code vs. planned first vs. asked clarifying questions)",
+        "Did they identify edge cases before or after writing code?",
+        "Did they start with brute force and optimize, or aim for optimal from the start?"
+      ],
+      "problem_solving_behavior": [
+        "Where did they get stuck and how did they recover?",
+        "How many times did they hit 'Run' before submitting?",
+        "Which test cases failed first and how did they iterate?",
+        "Did they switch languages midway? (interesting signal worth noting)"
+      ],
+      "code_quality": [
+        "Variable naming and code structure",
+        "Edge case handling",
+        "Time and space complexity awareness",
+        "Clean code vs. spaghetti under pressure"
+      ],
+      "time_breakdown": [
+        "Time spent reading/understanding the problem",
+        "Time spent planning (if any)",
+        "Time spent coding",
+        "Time spent debugging"
+      ],
+      "final_signal": {
+        "options": [
+          "Strong — clear thinking, efficient solution, clean code, good recovery from setbacks",
+          "Mixed — got to a solution but with significant struggles or code quality concerns",
+          "Weak — fundamental gaps in problem-solving approach or coding ability"
+        ],
+        "includes": "Clear reasoning behind the recommendation"
+      }
+    }
+  },
+
+  "build_plan": {
+    "saturday_morning": {
+      "duration": "4 hours",
+      "focus": "Foundation and room system",
+      "tasks": [
+        "Scaffold Next.js project with Tailwind",
+        "Build landing page with 'Create Room' flow",
+        "Implement room creation API route (generates roomId, stores in memory)",
+        "Build room setup page (problem configuration form)",
+        "Set up WebSocket server for room connections"
+      ]
+    },
+    "saturday_afternoon": {
+      "duration": "4 hours",
+      "focus": "The editor and real-time sync",
+      "tasks": [
+        "Integrate Monaco Editor into the room view",
+        "Set up Yjs with y-monaco for CRDT-based real-time collaboration",
+        "Add language selector dropdown (C, C++, Python, JS)",
+        "Build the split layout: editor left, problem + results right",
+        "Test real-time sync between two browser tabs"
+      ]
+    },
+    "sunday_morning": {
+      "duration": "4 hours",
+      "focus": "Code execution and test case system",
+      "tasks": [
+        "Integrate Judge0 API for code execution",
+        "Build 'Run Code' flow: send code + stdin to Judge0, display results",
+        "Implement test case evaluation: run against all cases, show pass/fail table",
+        "Add 'Submit' flow with hidden test cases",
+        "Handle edge cases: compilation errors, timeouts, runtime errors"
+      ]
+    },
+    "sunday_afternoon": {
+      "duration": "4 hours",
+      "focus": "AI debrief and polish",
+      "tasks": [
+        "Build session timeline recorder (track keystrokes, runs, pauses)",
+        "Implement 'End Session' flow: collect timeline + final code + test results",
+        "Send session data to Claude/GPT API with the debrief prompt",
+        "Build the debrief page: render AI evaluation in a clean, structured layout",
+        "Add shareable debrief URL",
+        "Polish UI, fix bugs, test end-to-end with a real session"
+      ]
+    }
+  },
+
+  "out_of_scope": [
+    "Video or audio chat between participants",
+    "User accounts, authentication, or login",
+    "Persistent database storage (sessions are ephemeral)",
+    "Leaderboards, rankings, or historical comparisons",
+    "More than 4 languages",
+    "Mobile responsiveness (desktop-first for MVP)",
+    "Multiple problems per session"
+  ],
+
+  "definition_of_done": [
+    "An interviewer can create a room and configure a coding problem with test cases.",
+    "A candidate can join via a shared link and see the same problem.",
+    "Both users see a shared Monaco editor with real-time keystroke sync.",
+    "The candidate can select C, C++, Python, or JavaScript.",
+    "Clicking 'Run' executes the code and shows test case results.",
+    "Clicking 'Submit' runs all test cases including hidden ones.",
+    "Clicking 'End Session' triggers AI debrief generation.",
+    "Both parties see a structured AI evaluation of the candidate's performance."
+  ]
+}
