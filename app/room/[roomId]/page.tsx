@@ -2,9 +2,8 @@
 
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { Room } from "@/lib/store";
-
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:1234";
+import type { Room, Language } from "@/lib/store";
+import { MonacoWithYjs } from "@/components/MonacoWithYjs";
 
 export default function RoomPage() {
   const params = useParams();
@@ -14,7 +13,6 @@ export default function RoomPage() {
   const [room, setRoom] = useState<Room | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [role] = useState<"interviewer" | "candidate">(roleFromUrl);
-  const [ws, setWs] = useState<WebSocket | null>(null);
 
   useEffect(() => {
     fetch(`/api/rooms/${roomId}`)
@@ -23,19 +21,6 @@ export default function RoomPage() {
       .catch(() => setError("Room not found"));
   }, [roomId]);
 
-  useEffect(() => {
-    if (!roomId) return;
-    const socket = new WebSocket(WS_URL);
-    socket.onopen = () => {
-      socket.send(JSON.stringify({ type: "join", roomId, role }));
-      setWs(socket);
-    };
-    return () => {
-      socket.close();
-      setWs(null);
-    };
-  }, [roomId, role]);
-
   const markActive = async () => {
     await fetch(`/api/rooms/${roomId}`, {
       method: "PATCH",
@@ -43,6 +28,15 @@ export default function RoomPage() {
       body: JSON.stringify({ status: "active" }),
     });
     setRoom((r) => (r ? { ...r, status: "active" } : null));
+  };
+
+  const setLanguage = async (language: Language) => {
+    await fetch(`/api/rooms/${roomId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language }),
+    });
+    setRoom((r) => (r ? { ...r, language } : null));
   };
 
   if (error) {
@@ -62,11 +56,21 @@ export default function RoomPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
-      <header className="border-b border-zinc-800 px-4 py-2 flex items-center justify-between">
+      <header className="border-b border-zinc-800 px-4 py-2 flex items-center justify-between shrink-0">
         <span className="font-mono text-sm text-zinc-400">Room {roomId}</span>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-4">
+          <select
+            value={room.language}
+            onChange={(e) => setLanguage(e.target.value as Language)}
+            className="rounded bg-zinc-800 px-2 py-1 text-sm border border-zinc-600"
+          >
+            <option value="c">C</option>
+            <option value="cpp">C++</option>
+            <option value="python">Python</option>
+            <option value="javascript">JavaScript</option>
+          </select>
           <span className="text-sm text-zinc-400 capitalize">{role}</span>
-          {room.status === "waiting" && (
+          {room.status === "waiting" && role === "interviewer" && (
             <button
               onClick={markActive}
               className="rounded bg-amber-500 px-3 py-1 text-zinc-950 text-sm font-medium"
@@ -76,16 +80,36 @@ export default function RoomPage() {
           )}
         </div>
       </header>
-      <div className="flex-1 p-4 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4">
-          <h2 className="text-sm font-medium text-zinc-400 mb-2">Code editor</h2>
-          <p className="text-zinc-500 text-sm">Monaco editor will go here (Phase 2)</p>
+      <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 p-4">
+        <div className="flex flex-col rounded-lg border border-zinc-700 bg-zinc-900/50 overflow-hidden">
+          <h2 className="text-sm font-medium text-zinc-400 px-3 py-2 border-b border-zinc-700 shrink-0">
+            Code
+          </h2>
+          <div className="flex-1 min-h-0">
+            <MonacoWithYjs roomId={roomId} language={room.language} height="100%" />
+          </div>
         </div>
-        <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4">
-          <h2 className="text-sm font-medium text-zinc-400 mb-2">Problem</h2>
-          <h3 className="font-medium">{room.problem.title || "Untitled"}</h3>
-          <div className="mt-2 text-sm text-zinc-300 whitespace-pre-wrap">
-            {room.problem.description || "No description."}
+        <div className="flex flex-col rounded-lg border border-zinc-700 bg-zinc-900/50 overflow-hidden">
+          <h2 className="text-sm font-medium text-zinc-400 px-3 py-2 border-b border-zinc-700 shrink-0">
+            Problem
+          </h2>
+          <div className="flex-1 overflow-auto p-4">
+            <h3 className="font-medium text-lg">{room.problem.title || "Untitled"}</h3>
+            <div className="mt-2 text-sm text-zinc-300 whitespace-pre-wrap">
+              {room.problem.description || "No description."}
+            </div>
+            {room.problem.examples.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-zinc-400 font-medium mb-2">Examples</h4>
+                {room.problem.examples.map((ex, i) => (
+                  <div key={i} className="mb-3 p-2 rounded bg-zinc-800/50 text-sm">
+                    <p><span className="text-zinc-500">Input:</span> {ex.input}</p>
+                    <p><span className="text-zinc-500">Output:</span> {ex.output}</p>
+                    {ex.explanation && <p className="text-zinc-500">{ex.explanation}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
