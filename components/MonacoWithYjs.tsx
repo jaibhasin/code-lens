@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
 import type { Language } from "@/lib/store";
+
+export interface MonacoWithYjsHandle {
+  getCode: () => string;
+}
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:1234";
 
@@ -24,7 +28,8 @@ interface MonacoWithYjsProps {
   height?: string | number;
 }
 
-export function MonacoWithYjs({ roomId, language, height = "100%" }: MonacoWithYjsProps) {
+export const MonacoWithYjs = forwardRef<MonacoWithYjsHandle, MonacoWithYjsProps>(
+  function MonacoWithYjs({ roomId, language, height = "100%" }, ref) {
   const [ready, setReady] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -44,6 +49,10 @@ export function MonacoWithYjs({ roomId, language, height = "100%" }: MonacoWithY
       setReady(false);
     };
   }, [roomId]);
+
+  useImperativeHandle(ref, () => ({
+    getCode: () => docRef.current?.getText("monaco").toString() ?? "",
+  }));
 
   useEffect(() => {
     return () => {
@@ -90,4 +99,4 @@ export function MonacoWithYjs({ roomId, language, height = "100%" }: MonacoWithY
       onMount={handleMount}
     />
   );
-}
+});
