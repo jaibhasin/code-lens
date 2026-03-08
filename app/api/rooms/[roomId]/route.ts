@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom, updateRoom } from "@/lib/store";
-import type { Problem } from "@/lib/store";
+import { getRoom } from "@/lib/store";
+import type { Problem, TimelineEvent } from "@/lib/store";
+import { generateDebrief } from "@/lib/ai-debrief";
 
 export async function GET(
   _req: NextRequest,
@@ -28,6 +29,12 @@ export async function PATCH(
   if (body.language !== undefined) {
     room.language = body.language;
   }
+  if (body.timelineEvent !== undefined) {
+    const ev = body.timelineEvent as TimelineEvent;
+    if (ev.timestamp && ev.event) {
+      room.timeline.push(ev);
+    }
+  }
   if (body.status !== undefined) {
     room.status = body.status;
     if (body.status === "active" && !room.startedAt) {
@@ -35,9 +42,20 @@ export async function PATCH(
     }
     if (body.status === "ended") {
       room.endedAt = Date.now();
+      if (body.code !== undefined) {
+        room.code = body.code;
+      }
+      try {
+        room.debrief = await generateDebrief(room);
+      } catch (err) {
+        room.debrief = {
+          error: (err as Error).message,
+          summary: "Debrief generation failed.",
+        };
+      }
     }
   }
-  if (body.code !== undefined) {
+  if (body.code !== undefined && body.status !== "ended") {
     room.code = body.code;
   }
   if (body.debrief !== undefined) {

@@ -35,16 +35,35 @@ export default function RoomPage() {
     setRoom((r) => (r ? { ...r, status: "active" } : null));
   };
 
+  const pushTimelineEvent = useCallback(
+    (event: string, data: Record<string, unknown> = {}) => {
+      fetch(`/api/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          timelineEvent: {
+            timestamp: new Date().toISOString(),
+            event,
+            data,
+          },
+        }),
+      }).catch(() => {});
+    },
+    [roomId]
+  );
+
   const endSession = async () => {
+    const code = editorRef.current?.getCode() ?? "";
     await fetch(`/api/rooms/${roomId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "ended" }),
+      body: JSON.stringify({ status: "ended", code }),
     });
     router.push(`/room/${roomId}/debrief`);
   };
 
   const setLanguage = async (language: Language) => {
+    pushTimelineEvent("language_change", { language });
     await fetch(`/api/rooms/${roomId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -81,6 +100,10 @@ export default function RoomPage() {
         });
         const data = await res.json();
         if (data.results) setRunResults(data.results);
+        pushTimelineEvent(includeHidden ? "submit" : "run", {
+          testCount: testCases.length,
+          passed: data.results?.filter((r: TestResult) => r.status === "passed").length,
+        });
         if (roomId) {
           const r = await fetch(`/api/rooms/${roomId}`).then((x) => x.json());
           setRoom(r);
@@ -89,7 +112,7 @@ export default function RoomPage() {
         setRunning(false);
       }
     },
-    [room, roomId]
+    [room, roomId, pushTimelineEvent]
   );
 
   if (error) {
