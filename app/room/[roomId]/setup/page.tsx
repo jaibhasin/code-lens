@@ -19,6 +19,9 @@ export default function RoomSetupPage() {
   const [hiddenTests, setHiddenTests] = useState<HiddenTest[]>([{ ...defaultHidden }]);
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [leetcodeUrl, setLeetcodeUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const roomLink = typeof window !== "undefined" ? `${window.location.origin}/room/${roomId}` : "";
 
@@ -39,6 +42,40 @@ export default function RoomSetupPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [roomLink]);
+
+  const fetchFromLeetCode = async () => {
+    if (!leetcodeUrl.trim()) return;
+    setImportError(null);
+    setImporting(true);
+    try {
+      const res = await fetch("/api/import/leetcode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: leetcodeUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error ?? "Failed to fetch problem");
+        return;
+      }
+      const problem = data as Problem;
+      setTitle(problem.title);
+      setDescription(problem.description);
+      setExamples(
+        problem.examples.length > 0
+          ? problem.examples.map((e) => ({ ...e, explanation: e.explanation ?? "" }))
+          : [{ ...defaultExample }]
+      );
+      setHiddenTests(
+        problem.hiddenTests?.length > 0
+          ? problem.hiddenTests
+          : [{ ...defaultHidden }]
+      );
+      setLeetcodeUrl("");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const saveAndGo = async () => {
     setSaving(true);
@@ -65,6 +102,32 @@ export default function RoomSetupPage() {
     <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-3xl mx-auto">
       <h1 className="text-2xl font-semibold">Configure problem</h1>
       <p className="text-zinc-400 mt-1">Room: {roomId}</p>
+
+      <div className="mt-6 p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
+        <label className="block text-sm font-medium text-zinc-300">Import from LeetCode</label>
+        <p className="text-xs text-zinc-500 mt-0.5">Paste a problem URL to fill title, description, and examples.</p>
+        <div className="mt-2 flex gap-2">
+          <input
+            value={leetcodeUrl}
+            onChange={(e) => setLeetcodeUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && fetchFromLeetCode()}
+            placeholder="https://leetcode.com/problems/two-sum/"
+            className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500"
+            disabled={importing}
+          />
+          <button
+            type="button"
+            onClick={fetchFromLeetCode}
+            disabled={importing || !leetcodeUrl.trim()}
+            className="px-4 py-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/50 text-sm font-medium hover:bg-amber-500/30 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {importing ? "Fetching…" : "Fetch problem"}
+          </button>
+        </div>
+        {importError && (
+          <p className="mt-2 text-sm text-red-400">{importError}</p>
+        )}
+      </div>
 
       <div className="mt-6 space-y-4">
         <div>
