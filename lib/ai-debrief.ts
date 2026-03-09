@@ -1,7 +1,6 @@
 import type { Room } from "./store";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 function buildPrompt(room: Room): string {
   const durationMs = room.endedAt && room.startedAt ? room.endedAt - room.startedAt : 0;
@@ -43,62 +42,38 @@ Return only valid JSON, no surrounding text.`;
 }
 
 export async function generateDebrief(room: Room): Promise<Record<string, unknown>> {
+  if (!OPENAI_API_KEY) {
+    return {
+      approach_analysis: "Set OPENAI_API_KEY in .env to generate debriefs.",
+      problem_solving_behavior: "",
+      code_quality: "",
+      time_breakdown: "",
+      final_signal: "Mixed",
+      summary: "Debrief skipped (no OpenAI API key).",
+    };
+  }
+
   const prompt = buildPrompt(room);
 
-  if (OPENAI_API_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-      }),
-    });
-    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const content = data.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error("Empty OpenAI response");
-    const raw = content.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return parsed;
-  }
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+    }),
+  });
 
-  if (ANTHROPIC_API_KEY) {
-    const res = await fetch(
-      "https://api.anthropic.com/v1/messages",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-haiku-20241022",
-          max_tokens: 2048,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      }
-    );
-    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { content?: { text?: string }[] };
-    const text = data.content?.[0]?.text?.trim();
-    if (!text) throw new Error("Empty Anthropic response");
-    const raw = text.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return parsed;
-  }
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
 
-  return {
-    approach_analysis: "No API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.",
-    problem_solving_behavior: "",
-    code_quality: "",
-    time_breakdown: "",
-    final_signal: "Mixed",
-    summary: "Debrief generation skipped (no API key).",
-  };
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error("Empty OpenAI response");
+
+  const raw = content.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+  return JSON.parse(raw) as Record<string, unknown>;
 }

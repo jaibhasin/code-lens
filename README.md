@@ -19,7 +19,7 @@ Where Engineers Are Forged Under Pressure — a real-time collaborative code int
    Open [http://localhost:3000](http://localhost:3000).
 
 4. **Optional env** (see `.env.example`):
-   - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — for AI debrief generation
+   - `OPENAI_API_KEY` — for AI debrief generation (required for debriefs)
    - `JUDGE0_BASE_URL` / `JUDGE0_AUTH_TOKEN` — code execution (defaults to Judge0 CE)
    - `NEXT_PUBLIC_WS_URL` — Yjs WebSocket URL (default `ws://localhost:1234`)
 
