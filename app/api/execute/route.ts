@@ -54,16 +54,31 @@ export async function POST(req: NextRequest) {
     }
 
     const statusId = res.status?.id ?? 0;
-    const status = mapJudge0StatusToResult(statusId);
-    const actualOutput =
-      status === "passed" || status === "failed"
-        ? normalizeOutput(res.stdout)
-        : res.stderr || res.message || res.compile_output || res.stdout || "";
+    // Map non-output statuses first (compile error, TLE, runtime error).
+    // For anything that produced stdout we compare ourselves — Judge0's
+    // built-in accepted/wrong-answer is only reliable when expected_output
+    // is sent in the submission, which we intentionally omit so we always
+    // get the raw stdout back and can show it in the UI.
+    const engineStatus = mapJudge0StatusToResult(statusId);
+
+    let status: TestResult["status"];
+    let actualOutput: string;
+
+    if (engineStatus === "compilation_error" || engineStatus === "TLE" || engineStatus === "runtime_error") {
+      // Non-output statuses — surface the error message.
+      status = engineStatus;
+      actualOutput = res.stderr || res.compile_output || res.message || "";
+    } else {
+      // Code ran to completion — compare stdout against expected output.
+      actualOutput = normalizeOutput(res.stdout);
+      const expected = (tc.expectedOutput ?? "").trimEnd();
+      status = actualOutput === expected ? "passed" : "failed";
+    }
 
     results.push({
       input,
       expectedOutput: (tc.expectedOutput ?? "").trimEnd(),
-      actualOutput: typeof actualOutput === "string" ? actualOutput.trimEnd() : String(actualOutput),
+      actualOutput: actualOutput.trimEnd(),
       status,
     });
   }

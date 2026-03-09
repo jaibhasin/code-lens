@@ -61,6 +61,12 @@ export async function PATCH(
   if (body.debrief !== undefined) {
     room.debrief = body.debrief;
   }
+  if (body.interviewerCompany !== undefined) {
+    room.interviewerCompany = body.interviewerCompany;
+  }
+  if (body.candidateName !== undefined) {
+    room.candidateName = body.candidateName;
+  }
 
   return NextResponse.json(room);
 }

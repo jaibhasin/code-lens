@@ -3,11 +3,26 @@ import type { Language } from "./store";
 const JUDGE0_BASE = process.env.JUDGE0_BASE_URL || "https://ce.judge0.com";
 const JUDGE0_AUTH = process.env.JUDGE0_AUTH_TOKEN;
 
+/**
+ * Judge0 language IDs for each supported language.
+ * Full list: https://ce.judge0.com/languages
+ *
+ *  50  → C (GCC 9.2.0)
+ *  54  → C++ (GCC 9.2.0)
+ *  62  → Java (OpenJDK 13.0.1)
+ *  63  → JavaScript (Node.js 12.14.0)
+ *  71  → Python (3.8.1)
+ *  74  → TypeScript (3.7.4)
+ *  95  → Go (1.13.5)
+ */
 const LANGUAGE_IDS: Record<Language, number> = {
   c: 50,
   cpp: 54,
-  python: 71,
+  java: 62,
   javascript: 63,
+  python: 71,
+  typescript: 74,
+  go: 95,
 };
 
 export interface Judge0SubmissionRequest {

@@ -12,6 +12,7 @@ export default function RoomSetupPage() {
   const router = useRouter();
   const roomId = params.roomId as string;
 
+  const [company, setCompany] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [examples, setExamples] = useState<ProblemExample[]>([{ ...defaultExample }]);
@@ -51,7 +52,8 @@ export default function RoomSetupPage() {
       await fetch(`/api/rooms/${roomId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ problem }),
+        // Save the problem and the company name together in one request.
+        body: JSON.stringify({ problem, interviewerCompany: company.trim() }),
       });
       router.push(`/room/${roomId}?role=interviewer`);
     } finally {
@@ -65,6 +67,15 @@ export default function RoomSetupPage() {
       <p className="text-zinc-400 mt-1">Room: {roomId}</p>
 
       <div className="mt-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-zinc-300">Your company name</label>
+          <input
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2"
+            placeholder="e.g. Acme Corp"
+          />
+        </div>
         <div>
           <label className="block text-sm font-medium text-zinc-300">Title</label>
           <input
@@ -91,6 +102,10 @@ export default function RoomSetupPage() {
               + Add
             </button>
           </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Input is passed as raw stdin — write just the value, e.g. <code className="bg-zinc-800 px-1 rounded">4</code> not <code className="bg-zinc-800 px-1 rounded">x=4</code>.
+            Multi-line inputs are fine (one value per line).
+          </p>
           {examples.map((ex, i) => (
             <div key={i} className="mt-2 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700 space-y-2">
               <input
@@ -127,6 +142,10 @@ export default function RoomSetupPage() {
               + Add
             </button>
           </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Same stdin format — raw value only, e.g. <code className="bg-zinc-800 px-1 rounded">8</code>.
+            These are not shown to the candidate until after submission.
+          </p>
           {hiddenTests.map((h, i) => (
             <div key={i} className="mt-2 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700 space-y-2">
               <input

@@ -1,4 +1,4 @@
-export type Language = "c" | "cpp" | "python" | "javascript";
+export type Language = "c" | "cpp" | "python" | "javascript" | "java" | "go" | "typescript";
 
 export interface ProblemExample {
   input: string;
@@ -75,6 +75,10 @@ export interface Room {
   startedAt: number | null;
   endedAt: number | null;
   debrief: Record<string, unknown> | null;
+  /** Company name entered by the interviewer on the setup page. */
+  interviewerCompany: string;
+  /** Candidate's name, entered when they land on the room page. */
+  candidateName: string;
 }
 
 const rooms = new Map<string, Room>();
@@ -101,6 +105,8 @@ export function createRoom(roomId: string): Room {
     startedAt: null,
     endedAt: null,
     debrief: null,
+    interviewerCompany: "",
+    candidateName: "",
   };
   rooms.set(roomId, room);
   return room;

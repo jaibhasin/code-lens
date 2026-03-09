@@ -10,16 +10,31 @@ export default function DebriefPage() {
   const [room, setRoom] = useState<Room | null>(null);
 
   useEffect(() => {
-    fetch(`/api/rooms/${roomId}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Not found"))))
-      .then(setRoom)
-      .catch(() => setRoom(null));
+    // Poll every 3 s until the debrief field is populated.
+    // We navigate here immediately when End Session is clicked (before the
+    // OpenAI call finishes), so we need to wait for the server to finish.
+    const load = async () => {
+      const r = await fetch(`/api/rooms/${roomId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null);
+      if (!r) return;
+      setRoom(r);
+      if (r.debrief) clearInterval(id); // stop once debrief arrives
+    };
+
+    const id = setInterval(load, 3000);
+    load(); // immediate first load
+    return () => clearInterval(id);
   }, [roomId]);
 
-  if (!room) {
+  if (!room || !room.debrief) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
-        <p className="text-zinc-400">Loading…</p>
+      <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
+        <svg className="animate-spin w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        <p className="text-zinc-400">Generating debrief…</p>
       </main>
     );
   }
