@@ -7,13 +7,31 @@ import type { TestResult } from "@/lib/store";
 import dynamic from "next/dynamic";
 import type { MonacoWithYjsHandle, AwarenessPeer } from "@/components/MonacoWithYjs";
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * app/room/[roomId]/page.tsx — Interview Room
+ *
+ * The main collaborative coding environment. Two-panel layout:
+ *   Left: Monaco editor with Yjs CRDT sync
+ *   Right: Problem description + test results
+ *
+ * GLASSMORPHISM HIGHLIGHTS:
+ *   - Header: frosted glass bar (bg-white/[0.03] backdrop-blur-xl)
+ *   - Header buttons: matching accent glow (Run=emerald, Submit=blue, Start=amber, End=red)
+ *   - Presence dots: neon glow when active (shadow-[0_0_6px])
+ *   - Editor/Problem panels: .glass containers
+ *   - Panel headers: bg-white/[0.02] border-b border-white/[0.06]
+ *   - Waiting overlay: bg-black/60 backdrop-blur-md + amber glow on Start button
+ *   - Fullscreen warning: glass card with red glow + pulsing warning icon
+ *   - Name gate: glass card wrapper with amber-glowing input + button
+ *   - Examples blocks: bg-white/[0.03] border-white/[0.06]
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 /*
  * y-monaco touches `window` at module-evaluation time, which crashes
  * Next.js SSR. Dynamically importing with ssr:false ensures the module
  * is only ever loaded in the browser.
- *
- * We cast to the original component type so TypeScript still checks props
- * correctly — dynamic() loses the generic forwardRef signature otherwise.
  */
 const MonacoWithYjs = dynamic(
   () => import("@/components/MonacoWithYjs").then((m) => m.MonacoWithYjs),
@@ -32,24 +50,11 @@ export default function RoomPage() {
   const [running, setRunning] = useState(false);
   /**
    * Live list of remote peers in the Yjs awareness layer.
-   * Updated by MonacoWithYjs via the onPresenceChange callback whenever
-   * someone joins, leaves, or updates their awareness state.
-   * Used to render the presence dot in the header.
+   * Updated by MonacoWithYjs via the onPresenceChange callback.
    */
   const [peers, setPeers] = useState<AwarenessPeer[]>([]);
   const [copied, setCopied] = useState(false);
-  /**
-   * Candidate's name — collected via a gate screen before entering the room.
-   * For the interviewer this stays empty (they entered their company in setup).
-   * Once submitted it is persisted to the room via PATCH so the interviewer
-   * can also see the candidate's name.
-   */
   const [candidateName, setCandidateName] = useState("");
-  /**
-   * Controls whether the candidate name-entry gate is visible.
-   * Starts true for candidates (they must enter their name first).
-   * Interviewers skip straight into the room.
-   */
   const [showNameGate, setShowNameGate] = useState(role === "candidate");
   const editorRef = useRef<MonacoWithYjsHandle>(null);
   const router = useRouter();
@@ -61,10 +66,7 @@ export default function RoomPage() {
       .catch(() => setError("Room not found"));
   }, [roomId]);
 
-  /**
-   * Poll for the candidate's name while the interviewer is waiting.
-   * Only runs for the interviewer — candidates set their own name locally.
-   */
+  /* Poll for the candidate's name (interviewer side) */
   useEffect(() => {
     if (role !== "interviewer") return;
     if (room?.candidateName) return;
@@ -80,31 +82,19 @@ export default function RoomPage() {
     return () => clearInterval(id);
   }, [role, roomId, room?.candidateName]);
 
-  /**
-   * Poll for session start while the candidate is in the waiting state.
-   *
-   * The candidate's editor is locked (read-only) until the interviewer clicks
-   * "Start session", which flips room.status from "waiting" → "active".
-   * We poll every 2 s and update local room state as soon as it changes,
-   * which causes the editor lock and waiting overlay to lift automatically.
-   */
+  /* Poll for session start (candidate side) */
   useEffect(() => {
     if (role !== "candidate") return;
-    if (room?.status !== "waiting") return; // already active or ended
+    if (room?.status !== "waiting") return;
 
     const id = setInterval(async () => {
       const r = await fetch(`/api/rooms/${roomId}`).then((x) => x.json());
       if (r.status !== "waiting") {
-        // Suppress paste detection during the initial template load that fires
-        // when the session becomes active and the editor seeds its template.
         suppressPasteDetectionRef.current = true;
         setTimeout(() => { suppressPasteDetectionRef.current = false; }, 500);
         setRoom(r);
         clearInterval(id);
 
-        // Auto-enter fullscreen when session starts as an integrity measure.
-        // .catch() handles browsers that reject requestFullscreen() without
-        // a prior user gesture (e.g. Firefox). The header button covers this case.
         if (document.fullscreenEnabled) {
           document.documentElement.requestFullscreen().catch(() => {});
         }
@@ -114,11 +104,6 @@ export default function RoomPage() {
     return () => clearInterval(id);
   }, [role, roomId, room?.status]);
 
-  /**
-   * Called when the candidate submits their name in the gate screen.
-   * Persists the name to the room so the interviewer sees it too,
-   * then dismisses the gate and reveals the editor.
-   */
   const submitCandidateName = async () => {
     const trimmed = candidateName.trim();
     if (!trimmed) return;
@@ -157,42 +142,13 @@ export default function RoomPage() {
     [roomId]
   );
 
-  /**
-   * Behavioral signal tracking for the AI timeline.
-   *
-   * lastActivityRef     — timestamp of most recent content change
-   * lastKeystrokeEmit   — timestamp of the last "keystroke" event we pushed
-   * pauseDetectedRef    — true once we have emitted a "pause" for the current
-   *                       idle stretch (prevents duplicate pause events)
-   *
-   * Strategy:
-   *  - On every content change: update lastActivity; if > 60s elapsed since
-   *    last change (and we haven't reported a pause yet), emit "pause" first;
-   *    then emit "keystroke" at most once per 30 s of typing activity.
-   *  - A 15-second interval checks for sustained inactivity (> 90 s) to catch
-   *    pauses that happen while the candidate is just thinking (no typing).
-   */
+  /* Behavioral signal tracking for the AI timeline */
   const lastActivityRef = useRef<number>(0);
   const lastKeystrokeEmitRef = useRef<number>(0);
   const pauseDetectedRef = useRef<boolean>(false);
-  /**
-   * When true, paste detection is temporarily suppressed.
-   * Set before injecting templates (language switch / session start) to prevent
-   * large template insertions from being flagged as candidate paste events.
-   */
   const suppressPasteDetectionRef = useRef<boolean>(false);
 
-  /**
-   * Drives the "Re-enter fullscreen" amber button in the header.
-   * Starts false; flips to true when requestFullscreen() resolves,
-   * and back to false on a "fullscreenchange" exit event.
-   */
   const [isFullscreen, setIsFullscreen] = useState(false);
-  /**
-   * Timestamp (ms) when the candidate last exited fullscreen.
-   * Mirrors the tabBlurTimeRef pattern — stored in a ref to avoid
-   * triggering re-renders, used only for future correlation logic.
-   */
   const fullscreenExitTimeRef = useRef<number>(0);
 
   const handleContentChange = useCallback((charDelta: number) => {
@@ -207,8 +163,6 @@ export default function RoomPage() {
       pauseDetectedRef.current = true;
     }
 
-    // Detect bulk inserts as potential paste (backup for middle-click paste etc.)
-    // Skip detection when suppressed — template injections are not pastes.
     const timeSinceLast = now - lastActivityRef.current;
     if (!suppressPasteDetectionRef.current && charDelta > 80 && (timeSinceLast < 2_000 || lastActivityRef.current === 0)) {
       pushTimelineEvent("paste", { charCount: charDelta, lineCount: Math.ceil(charDelta / 40), source: "bulk_insert" });
@@ -266,32 +220,17 @@ export default function RoomPage() {
     return () => document.removeEventListener("visibilitychange", handler);
   }, [role, room?.status, pushTimelineEvent]);
 
-  /**
-   * Fullscreen exit tracking — mirrors the tab_blur/tab_focus pattern.
-   *
-   * When the candidate exits fullscreen (Escape, browser chrome, OS hotkey),
-   * we log a "fullscreen_exit" timeline event so the AI debrief can flag it
-   * as a potential integrity signal alongside tab switches and paste events.
-   *
-   * Guarded by role === "candidate" and room.status === "active" so the
-   * interviewer is completely unaffected.
-   *
-   * Known limitation: F11 on Windows/Linux bypasses the Fullscreen API entirely
-   * and cannot be detected — documented in the plan as a known browser limitation.
-   */
+  /* Fullscreen exit tracking */
   useEffect(() => {
     if (role !== "candidate") return;
     if (room?.status !== "active") return;
 
-    // Sync initial fullscreen state — the polling effect may have already
-    // entered fullscreen before this effect's first run.
     setIsFullscreen(!!document.fullscreenElement);
 
     const handleFullscreenChange = () => {
       const nowFullscreen = !!document.fullscreenElement;
       setIsFullscreen(nowFullscreen);
       if (!nowFullscreen) {
-        // Candidate exited fullscreen — record timestamp and push integrity signal
         fullscreenExitTimeRef.current = Date.now();
         pushTimelineEvent("fullscreen_exit", {});
       }
@@ -308,7 +247,6 @@ export default function RoomPage() {
     if (role !== "candidate") return;
     if (room?.status !== "active") return;
 
-    // Helper to capture a single snapshot and POST it to the server
     const captureSnapshot = () => {
       if (snapshotCountRef.current >= 60) return;
       const code = editorRef.current?.getCode() ?? "";
@@ -326,21 +264,11 @@ export default function RoomPage() {
       snapshotCountRef.current++;
     };
 
-    // Capture an immediate t=0 snapshot as a baseline for code evolution analysis.
-    // Without this, the first snapshot would be at 60s, leaving no reference point.
     captureSnapshot();
-
     const id = setInterval(captureSnapshot, 60_000);
-
     return () => clearInterval(id);
   }, [role, room?.status, roomId]);
 
-  /**
-   * Ends the interview session by sending the final code to the server.
-   * Awaits the PATCH to ensure the server acknowledged the end — if the request
-   * fails, shows an error alert so the user knows the debrief won't generate.
-   * The debrief generation itself runs in the background on the server (non-blocking).
-   */
   const endSession = async () => {
     const code = editorRef.current?.getCode() ?? room?.code ?? "";
     try {
@@ -352,16 +280,11 @@ export default function RoomPage() {
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
     } catch (err) {
       alert(`Failed to end session: ${(err as Error).message}. Please try again.`);
-      return; // Don't navigate — let the user retry
+      return;
     }
     router.push(`/room/${roomId}/debrief`);
   };
 
-  /**
-   * Templates mirror what MonacoWithYjs preloads on first mount.
-   * We keep a copy here so that when the user switches language we can
-   * detect "is the editor still on a pristine template?" before overwriting.
-   */
   const LANG_TEMPLATES: Record<Language, string> = {
     c: `#include <stdio.h>
 #include <stdlib.h>
@@ -465,15 +388,10 @@ func main() {
       body: JSON.stringify({ language }),
     });
 
-    // Inject the new language template only when the editor is empty OR
-    // still contains one of the unmodified starter templates (i.e. the
-    // candidate has not written any real code yet).
     const currentCode = editorRef.current?.getCode() ?? "";
     const previousTemplate = room ? LANG_TEMPLATES[room.language] : "";
     const isUntouched =
       currentCode.trim() === "" || currentCode === previousTemplate;
-    // Suppress paste detection while injecting the template — the large char
-    // insert is a template swap, not a candidate paste from an external source.
     if (isUntouched) {
       suppressPasteDetectionRef.current = true;
       editorRef.current?.setCode(LANG_TEMPLATES[language]);
@@ -515,7 +433,6 @@ func main() {
           testCount: testCases.length,
           passed: data.results?.filter((r: TestResult) => r.status === "passed").length,
         });
-        // Refresh room so interviewer's view gets the updated runs list.
         const r = await fetch(`/api/rooms/${roomId}`).then((x) => x.json());
         setRoom(r);
       } finally {
@@ -525,22 +442,15 @@ func main() {
     [room, roomId, pushTimelineEvent]
   );
 
-  /**
-   * Poll for new test runs while the interviewer is watching.
-   * The candidate's Run/Submit updates room.runs on the server; the interviewer
-   * needs to see those results in real-time without having clicked Run themselves.
-   * We poll every 3 s and update room (and runResults) whenever a new run appears.
-   */
+  /* Poll for new test runs (interviewer side) */
   useEffect(() => {
     if (role !== "interviewer") return;
     if (room?.status === "ended") return;
 
     const id = setInterval(async () => {
       const r = await fetch(`/api/rooms/${roomId}`).then((x) => x.json());
-      // Only update if a new run was added.
       if (r.runs?.length !== room?.runs?.length) {
         setRoom(r);
-        // Mirror the latest run's results into runResults so the table renders.
         const latest = r.runs?.[r.runs.length - 1];
         if (latest?.testResults) setRunResults(latest.testResults);
       }
@@ -549,68 +459,68 @@ func main() {
     return () => clearInterval(id);
   }, [role, roomId, room?.runs?.length, room?.status]);
 
+  // ── Error state ─────────────────────────────────────────────────────────
   if (error) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
+      <main className="min-h-screen flex items-center justify-center">
         <p className="text-red-400">{error}</p>
       </main>
     );
   }
+
+  // ── Loading state ───────────────────────────────────────────────────────
   if (!room) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
+      <main className="min-h-screen flex items-center justify-center">
         <p className="text-zinc-400">Loading room…</p>
       </main>
     );
   }
 
-  /**
-   * Name gate — shown to candidates before they enter the room.
-   * A simple full-screen overlay that collects the candidate's name.
-   * Submitting persists the name to the room (so the interviewer sees it)
-   * and dismisses the gate.
-   */
+  // ── Name gate — glass card with amber accents ───────────────────────────
   if (showNameGate) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-6">
-        <h1 className="text-2xl font-semibold">Welcome to your interview</h1>
-        {room.interviewerCompany && (
-          <p className="text-zinc-400">
-            Interviewing at <span className="text-white font-medium">{room.interviewerCompany}</span>
-          </p>
-        )}
-        <div className="flex flex-col gap-3 w-72">
-          <label className="text-sm text-zinc-300">Your name</label>
-          <input
-            autoFocus
-            value={candidateName}
-            onChange={(e) => setCandidateName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitCandidateName()}
-            className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-zinc-100 focus:outline-none focus:border-amber-500"
-            placeholder="e.g. Jane Smith"
-          />
-          <button
-            onClick={submitCandidateName}
-            disabled={!candidateName.trim()}
-            className="rounded-lg bg-amber-500 text-zinc-950 font-medium py-2 hover:bg-amber-400 disabled:opacity-40"
-          >
-            Enter room
-          </button>
+      <main className="min-h-screen flex flex-col items-center justify-center gap-6">
+        <div className="p-8 rounded-2xl glass max-w-md w-full flex flex-col items-center gap-5 animate-fade-in-up">
+          <h1 className="text-2xl font-semibold">Welcome to your interview</h1>
+          {room.interviewerCompany && (
+            <p className="text-zinc-400">
+              Interviewing at <span className="text-white font-medium">{room.interviewerCompany}</span>
+            </p>
+          )}
+          <div className="flex flex-col gap-3 w-full">
+            <label className="text-sm text-zinc-300">Your name</label>
+            <input
+              autoFocus
+              value={candidateName}
+              onChange={(e) => setCandidateName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitCandidateName()}
+              className="rounded-lg glass-input px-3 py-2 text-zinc-100"
+              placeholder="e.g. Jane Smith"
+            />
+            {/* Amber glow button */}
+            <button
+              onClick={submitCandidateName}
+              disabled={!candidateName.trim()}
+              className="rounded-lg bg-amber-500 text-zinc-950 font-medium py-2
+                         hover:bg-amber-400 disabled:opacity-40 transition-all duration-300
+                         shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:shadow-[0_0_30px_rgba(245,158,11,0.5)]"
+            >
+              Enter room
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
-      <header className="border-b border-zinc-800 px-4 py-2 flex items-center justify-between shrink-0">
-        {/*
-         * Header left — room ID plus participant names.
-         * interviewerCompany comes from setup; candidateName is entered by the
-         * candidate on their gate screen and immediately synced to the room.
-         * The interviewer's view refreshes automatically because room state is
-         * polled/updated whenever the candidate submits their name via PATCH.
-         */}
+    <main className="min-h-screen text-zinc-100 flex flex-col">
+
+      {/* ── Header — frosted glass bar ──────────────────────────────────── */}
+      {/* bg-white/[0.03] + backdrop-blur-xl creates the frosted glass effect.
+       * border-b border-white/[0.06] gives a subtle divider. */}
+      <header className="bg-white/[0.03] backdrop-blur-xl border-b border-white/[0.06] px-4 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm text-zinc-400">Room {roomId}</span>
           {room.interviewerCompany && (
@@ -625,7 +535,7 @@ func main() {
           )}
         </div>
         <div className="flex items-center gap-4">
-          {/* Copy candidate invite link — only the interviewer needs this */}
+          {/* Copy invite link — interviewer only */}
           {role === "interviewer" && (
             <button
               onClick={() => {
@@ -633,18 +543,13 @@ func main() {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               }}
-              className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-600"
+              className="rounded bg-white/[0.06] border border-white/[0.1] px-3 py-1 text-sm text-zinc-200 hover:bg-white/[0.1] transition-colors"
             >
               {copied ? "Copied!" : "Copy invite link"}
             </button>
           )}
-          {/*
-           * Re-enter fullscreen button — visible only to candidates who have
-           * exited fullscreen during an active session. Amber color signals
-           * "attention required" without being alarming. Clicking it re-enters
-           * fullscreen (user gesture satisfies browser requirements, so this
-           * works even in Firefox where the auto-trigger silently fails).
-           */}
+
+          {/* Re-enter fullscreen — amber accent, candidate only */}
           {role === "candidate" && room.status === "active" && !isFullscreen && (
             <button
               onClick={() => {
@@ -652,7 +557,8 @@ func main() {
                   document.documentElement.requestFullscreen().catch(() => {});
                 }
               }}
-              className="rounded bg-zinc-700 px-3 py-1 text-sm text-amber-400 border border-amber-500/50 hover:bg-zinc-600"
+              className="rounded bg-white/[0.06] px-3 py-1 text-sm text-amber-400 border border-amber-500/50
+                         hover:bg-white/[0.1] transition-colors shadow-[0_0_10px_rgba(245,158,11,0.15)]"
             >
               Re-enter fullscreen
             </button>
@@ -661,7 +567,7 @@ func main() {
           <select
             value={room.language}
             onChange={(e) => setLanguage(e.target.value as Language)}
-            className="rounded bg-zinc-800 px-2 py-1 text-sm border border-zinc-600"
+            className="rounded glass-input px-2 py-1 text-sm text-zinc-100"
           >
             <option value="c">C</option>
             <option value="cpp">C++</option>
@@ -671,35 +577,39 @@ func main() {
             <option value="python">Python</option>
             <option value="go">Go</option>
           </select>
+
+          {/* Run button — emerald glow */}
           <button
             onClick={() => runTests(false)}
             disabled={running}
-            className="rounded bg-emerald-600 px-3 py-1 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+            className="rounded bg-emerald-600 px-3 py-1 text-white text-sm font-medium
+                       hover:bg-emerald-500 disabled:opacity-50 transition-all duration-300
+                       shadow-[0_0_15px_rgba(16,185,129,0.25)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
           >
             {running ? "Running…" : "Run"}
           </button>
+
+          {/* Submit button — blue glow */}
           <button
             onClick={() => runTests(true)}
             disabled={running}
-            className="rounded bg-blue-600 px-3 py-1 text-white text-sm font-medium hover:bg-blue-500 disabled:opacity-50"
+            className="rounded bg-blue-600 px-3 py-1 text-white text-sm font-medium
+                       hover:bg-blue-500 disabled:opacity-50 transition-all duration-300
+                       shadow-[0_0_15px_rgba(59,130,246,0.25)] hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]"
           >
             Submit
           </button>
-          {/*
-           * Presence indicator — shown to both roles.
-           *
-           * Candidate sees a blue pulsing dot when the interviewer is connected.
-           * Interviewer sees a green pulsing dot when the candidate is connected.
-           *
-           * `peers` is populated from y-websocket awareness; it updates in
-           * real-time as people join/leave (no polling needed).
-           * `animate-pulse` is a Tailwind built-in — no animation library needed.
-           */}
+
+          {/* Presence indicator — neon glow dots when active */}
           {role === "candidate" && (() => {
             const interviewer = peers.find(p => p.role === "interviewer");
             return (
               <div className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${interviewer ? "bg-blue-500 animate-pulse" : "bg-zinc-600"}`} />
+                <span className={`w-2 h-2 rounded-full ${
+                  interviewer
+                    ? "bg-blue-500 animate-pulse shadow-[0_0_6px_rgba(59,130,246,0.6)]"
+                    : "bg-zinc-600"
+                }`} />
                 <span className="text-xs text-zinc-400">
                   {interviewer ? "Interviewer watching" : "Interviewer offline"}
                 </span>
@@ -710,7 +620,11 @@ func main() {
             const candidate = peers.find(p => p.role === "candidate");
             return (
               <div className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${candidate ? "bg-emerald-500 animate-pulse" : "bg-zinc-600"}`} />
+                <span className={`w-2 h-2 rounded-full ${
+                  candidate
+                    ? "bg-emerald-500 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.6)]"
+                    : "bg-zinc-600"
+                }`} />
                 <span className="text-xs text-zinc-400">
                   {candidate ? "Candidate online" : "Candidate offline"}
                 </span>
@@ -718,36 +632,42 @@ func main() {
             );
           })()}
           <span className="text-sm text-zinc-400 capitalize">{role}</span>
+
+          {/* Start session — amber glow */}
           {room.status === "waiting" && role === "interviewer" && (
             <button
               onClick={markActive}
-              className="rounded bg-amber-500 px-3 py-1 text-zinc-950 text-sm font-medium"
+              className="rounded bg-amber-500 px-3 py-1 text-zinc-950 text-sm font-medium
+                         shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:shadow-[0_0_30px_rgba(245,158,11,0.5)]
+                         transition-all duration-300"
             >
               Start session
             </button>
           )}
+
+          {/* End session — red glow */}
           {room.status !== "waiting" && room.status !== "ended" && role === "interviewer" && (
             <button
               onClick={endSession}
-              className="rounded bg-red-600 px-3 py-1 text-white text-sm font-medium hover:bg-red-500"
+              className="rounded bg-red-600 px-3 py-1 text-white text-sm font-medium
+                         hover:bg-red-500 transition-all duration-300
+                         shadow-[0_0_15px_rgba(239,68,68,0.25)] hover:shadow-[0_0_20px_rgba(239,68,68,0.4)]"
             >
               End session
             </button>
           )}
         </div>
       </header>
+
+      {/* ── Two-panel layout ────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 p-4">
-        <div className="flex flex-col rounded-lg border border-zinc-700 bg-zinc-900/50 overflow-hidden">
-          <h2 className="text-sm font-medium text-zinc-400 px-3 py-2 border-b border-zinc-700 shrink-0">
+
+        {/* ── Code panel — glass container ──────────────────────────────── */}
+        <div className="flex flex-col rounded-xl glass overflow-hidden">
+          {/* Panel header — slightly darker glass divider */}
+          <h2 className="text-sm font-medium text-zinc-400 px-3 py-2 bg-white/[0.02] border-b border-white/[0.06] shrink-0">
             Code
           </h2>
-          {/*
-           * Waiting overlay — shown to the candidate until the interviewer
-           * clicks "Start session". Sits on top of the editor (pointer-events-none
-           * on the editor beneath so the overlay is the only interactive layer).
-           * The overlay disappears the moment the polling effect detects
-           * room.status has changed to "active".
-           */}
           <div className="flex-1 min-h-0 relative">
             <MonacoWithYjs
               ref={editorRef}
@@ -760,14 +680,17 @@ func main() {
               onContentChange={handleContentChange}
               onPaste={handlePaste}
             />
+            {/* Waiting overlay — frosted glass with amber CTA */}
             {room.status === "waiting" && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-950/80 backdrop-blur-sm">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-md">
                 {role === "interviewer" ? (
                   <>
                     <p className="text-zinc-300 text-sm">Candidate is ready. Start the session when you are.</p>
                     <button
                       onClick={markActive}
-                      className="px-8 py-3 rounded-lg bg-amber-500 text-zinc-950 font-semibold text-lg hover:bg-amber-400 transition"
+                      className="px-8 py-3 rounded-xl bg-amber-500 text-zinc-950 font-semibold text-lg
+                                 hover:bg-amber-400 transition-all duration-300
+                                 shadow-[0_0_30px_rgba(245,158,11,0.4)] hover:shadow-[0_0_40px_rgba(245,158,11,0.6)]"
                     >
                       Start Session
                     </button>
@@ -788,8 +711,10 @@ func main() {
             )}
           </div>
         </div>
-        <div className="flex flex-col rounded-lg border border-zinc-700 bg-zinc-900/50 overflow-hidden">
-          <h2 className="text-sm font-medium text-zinc-400 px-3 py-2 border-b border-zinc-700 shrink-0">
+
+        {/* ── Problem panel — glass container ───────────────────────────── */}
+        <div className="flex flex-col rounded-xl glass overflow-hidden">
+          <h2 className="text-sm font-medium text-zinc-400 px-3 py-2 bg-white/[0.02] border-b border-white/[0.06] shrink-0">
             Problem
           </h2>
           <div className="flex-1 min-h-0 overflow-auto flex flex-col">
@@ -798,11 +723,12 @@ func main() {
               <div className="mt-2 text-sm text-zinc-300 whitespace-pre-wrap">
                 {room.problem.description || "No description."}
               </div>
+              {/* Examples — glass-styled blocks */}
               {room.problem.examples.length > 0 && (
                 <div className="mt-4">
                   <h4 className="text-zinc-400 font-medium mb-2">Examples</h4>
                   {room.problem.examples.map((ex, i) => (
-                    <div key={i} className="mb-3 p-2 rounded bg-zinc-800/50 text-sm">
+                    <div key={i} className="mb-3 p-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-sm">
                       <p><span className="text-zinc-500">Input:</span> {ex.input}</p>
                       <p><span className="text-zinc-500">Output:</span> {ex.output}</p>
                       {ex.explanation && <p className="text-zinc-500">{ex.explanation}</p>}
@@ -811,7 +737,8 @@ func main() {
                 </div>
               )}
             </div>
-            <div className="border-t border-zinc-700 flex-1 min-h-0 flex flex-col">
+            {/* Test results section */}
+            <div className="border-t border-white/[0.06] flex-1 min-h-0 flex flex-col">
               <h4 className="text-zinc-400 font-medium px-3 py-2 shrink-0">Test results</h4>
               <div className="flex-1 overflow-auto px-3 pb-3">
                 {runResults === null || runResults.length === 0 ? (
@@ -819,7 +746,7 @@ func main() {
                 ) : (
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-zinc-500 border-b border-zinc-700">
+                      <tr className="text-left text-zinc-500 border-b border-white/[0.06]">
                         <th className="py-1 pr-2">#</th>
                         <th className="py-1 pr-2">Status</th>
                         <th className="py-1">Input / Expected / Actual</th>
@@ -827,7 +754,7 @@ func main() {
                     </thead>
                     <tbody>
                       {runResults.map((tr, i) => (
-                        <tr key={i} className="border-b border-zinc-800">
+                        <tr key={i} className="border-b border-white/[0.04]">
                           <td className="py-2 pr-2 align-top">{i + 1}</td>
                           <td className="py-2 pr-2 align-top">
                             <span
@@ -856,47 +783,36 @@ func main() {
         </div>
       </div>
 
-      {/*
-       * Fullscreen exit warning overlay — shown only to candidates during an
-       * active session when they exit fullscreen (Escape, OS hotkey, etc.).
-       *
-       * This is a non-blocking warning: it floats over the UI without locking
-       * interaction. The candidate can dismiss it or re-enter fullscreen.
-       * The exit has already been recorded in the timeline for the AI debrief.
-       *
-       * Design intent:
-       *  - Red border + icon  → signals "something is wrong"
-       *  - Clear message      → tells the candidate exactly what happened
-       *  - Primary CTA        → re-enters fullscreen (user gesture, works in all browsers)
-       *  - Dismiss button     → lets them continue working (warning is still logged)
-       */}
+      {/* ── Fullscreen exit warning — glass card with red glow ──────────── */}
+      {/* Pulsing warning icon signals "something is wrong".
+       * The exit has already been recorded in the timeline. */}
       {role === "candidate" && room.status === "active" && !isFullscreen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm">
-          <div className="relative w-full max-w-md rounded-2xl border border-red-500/60 bg-zinc-900 shadow-2xl p-8 flex flex-col items-center gap-5">
-            {/* Warning icon */}
-            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-red-500/10 border border-red-500/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
+          <div className="relative w-full max-w-md rounded-2xl glass border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)] p-8 flex flex-col items-center gap-5 animate-fade-in-up">
+            {/* Warning icon with pulsing red glow */}
+            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-red-500/10 border border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.2)] animate-glow-pulse">
               <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
               </svg>
             </div>
 
-            {/* Heading */}
             <h2 className="text-xl font-bold text-white tracking-tight">Fullscreen Required</h2>
 
-            {/* Body */}
             <p className="text-center text-zinc-300 text-sm leading-relaxed">
               You have exited fullscreen mode. This session requires you to stay in fullscreen at all times.{" "}
               <span className="text-red-400 font-medium">This exit has been recorded</span> and will be visible to your interviewer.
             </p>
 
-            {/* Actions */}
+            {/* Red glow CTA */}
             <button
               onClick={() => {
                 if (document.fullscreenEnabled) {
                   document.documentElement.requestFullscreen().catch(() => {});
                 }
               }}
-              className="w-full rounded-lg bg-red-500 hover:bg-red-400 text-white font-semibold py-3 transition-colors"
+              className="w-full rounded-lg bg-red-500 hover:bg-red-400 text-white font-semibold py-3
+                         transition-all duration-300
+                         shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]"
             >
               Return to Fullscreen
             </button>

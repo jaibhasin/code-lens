@@ -1,7 +1,7 @@
 # AI Problem Picker Feature
 
-> **Status:** In Planning
-> **Last updated:** 2026-03-13
+> **Status:** in-progress
+> **Last updated:** 2026-03-14
 
 ---
 
@@ -247,6 +247,35 @@ Seeding ~2500 problems: ~$0.005 one-time (Upstash free tier covers it entirely).
 
 ---
 
+## Status: in-progress
+
+## Decisions
+- Used OpenAI `text-embedding-3-small` (1536 dims) over Upstash built-in embedding for better semantic quality
+- Company name stored in `localStorage["codelens_company"]` — set on landing page, read by sub-pages
+- `ProblemMetadata` has an index signature `[key: string]: unknown` to satisfy `@upstash/vector`'s `Dict` constraint
+- Seed script uses Claude Haiku for cost-efficient bulk summary generation
+- All sub-pages use lazy `useState` initializers (not `useEffect`) to hydrate from localStorage — avoids cascading render lint errors
+
+## Implemented this session (2026-03-14)
+- `app/room/[roomId]/setup/page.tsx` — refactored to 3-card picker landing
+- `app/room/[roomId]/setup/leetcode/page.tsx` — extracted LeetCode import form
+- `app/room/[roomId]/setup/manual/page.tsx` — extracted manual problem form
+- `app/room/[roomId]/setup/ai/page.tsx` — full AI picker UI (form → picking → cards → rewriting)
+- `app/api/ai/pick-problem/route.ts` — vector search + Claude re-rank API
+- `app/api/ai/rewrite-problem/route.ts` — Claude problem rewrite API
+- `lib/upstash.ts` — Upstash Vector client singleton + `ProblemMetadata` type
+- `lib/problem-topics.ts` — shared topic list constants
+- `scripts/seed-problems.ts` — one-time seeding script (~300 slugs, resume-safe)
+- `.env.example` updated with `UPSTASH_VECTOR_REST_URL`, `UPSTASH_VECTOR_REST_TOKEN`, `OPENAI_API_KEY`
+- `@upstash/vector` and `openai` npm packages installed
+
+## Open questions
+- Topics metadata: currently empty array in seed script (LeetCode doesn't expose topics in public GraphQL easily). Could add a hardcoded slug→topics map or scrape differently.
+- Need to actually run the seed script once Upstash index is created and env vars are set
+
+## Rejected approaches
+- Upstash built-in embedding: switched to OpenAI for better semantic clustering by algorithm type
+
 ## Changelog
 
 | Date | Change |
@@ -255,3 +284,4 @@ Seeding ~2500 problems: ~$0.005 one-time (Upstash free tier covers it entirely).
 | 2026-03-13 | Switched from JSON dataset to Upstash Vector for semantic search |
 | 2026-03-13 | Seed strategy finalized: Claude auto-generates algorithmic summaries during seeding (no manual effort) |
 | 2026-03-13 | Switched from Upstash built-in embedding to OpenAI `text-embedding-3-small` for better semantic quality |
+| 2026-03-14 | Full implementation — all files created, TypeScript clean, lint passing |

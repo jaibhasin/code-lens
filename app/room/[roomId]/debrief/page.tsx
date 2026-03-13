@@ -1,3 +1,24 @@
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * app/room/[roomId]/debrief/page.tsx — Evaluation / Debrief Page
+ *
+ * Displays the AI-generated interview evaluation after a session ends.
+ *
+ * ROLE-BASED VIEWS:
+ *   - Interviewer (default): full view with all scores, analysis, integrity
+ *   - Candidate (?role=candidate): simplified — score, verdict, summary only
+ *
+ * GLASSMORPHISM:
+ *   - All section cards: .glass replacing bg-zinc-900/60 border-zinc-800
+ *   - Staggered entrance: each card gets animate-fade-in-up with incremental delay
+ *   - ScoreBar: glow shadow matching bar color, track is bg-white/[0.06]
+ *   - ScoreDot: filled dots get amber glow shadow-[0_0_6px], empty dots bg-white/[0.08]
+ *   - HireSignalBadge: matching color glow shadow
+ *   - Integrity flags: glass card with red glow accent
+ *   - Loading state: glass wrapper + spinner glow
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 "use client";
 
 import { useParams, useSearchParams } from "next/navigation";
@@ -12,7 +33,6 @@ interface Debrief {
   code_quality?: string;
   code_quality_score?: number;
   time_breakdown?: string;
-  /** Renamed from communication_score — tracks structured/systematic thinking */
   structured_thinking_score?: number;
   overall_score?: number;
   hire_signal?: string;
@@ -21,15 +41,15 @@ interface Debrief {
   code_evolution_analysis?: string;
   integrity_score?: number;
   integrity_flags?: string[];
-  /** Specific strengths observed during the session */
   strengths?: string[];
-  /** Specific areas for improvement */
   weaknesses?: string[];
-  /** Present when the debrief is still being generated */
   status?: string;
   error?: string;
 }
 
+/* ── ScoreDot ──────────────────────────────────────────────────────────────
+ * Renders a row of dots (filled/empty) to visualize a score.
+ * Filled dots get an amber neon glow; empty dots are subtle glass. */
 function ScoreDot({ score, max }: { score: number; max: number }) {
   return (
     <div className="flex gap-1">
@@ -37,7 +57,9 @@ function ScoreDot({ score, max }: { score: number; max: number }) {
         <span
           key={i}
           className={`w-2.5 h-2.5 rounded-full ${
-            i < score ? "bg-amber-400" : "bg-zinc-700"
+            i < score
+              ? "bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.5)]"
+              : "bg-white/[0.08]"
           }`}
         />
       ))}
@@ -45,30 +67,54 @@ function ScoreDot({ score, max }: { score: number; max: number }) {
   );
 }
 
+/* ── ScoreBar ──────────────────────────────────────────────────────────────
+ * Horizontal progress bar with color-coded fill + matching glow shadow.
+ * Track uses glass-themed bg-white/[0.06]. */
 function ScoreBar({ score, max }: { score: number; max: number }) {
   const pct = Math.round((score / max) * 100);
   const color =
     pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+  /* Glow shadow matches the bar color for a neon effect */
+  const glow =
+    pct >= 70
+      ? "shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+      : pct >= 40
+      ? "shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+      : "shadow-[0_0_10px_rgba(239,68,68,0.3)]";
   return (
-    <div className="w-full bg-zinc-800 rounded-full h-1.5">
+    <div className="w-full bg-white/[0.06] rounded-full h-1.5">
       <div
-        className={`h-1.5 rounded-full transition-all ${color}`}
+        className={`h-1.5 rounded-full transition-all ${color} ${glow}`}
         style={{ width: `${pct}%` }}
       />
     </div>
   );
 }
 
+/* ── HireSignalBadge ───────────────────────────────────────────────────────
+ * Color-coded badge with matching glow shadow for the hire verdict. */
 function HireSignalBadge({ signal }: { signal: string }) {
-  const colors: Record<string, string> = {
-    "Strong Hire": "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
-    "Hire": "bg-blue-500/20 text-blue-300 border-blue-500/40",
-    "No Hire": "bg-amber-500/20 text-amber-300 border-amber-500/40",
-    "Strong No Hire": "bg-red-500/20 text-red-300 border-red-500/40",
+  const config: Record<string, { cls: string; glow: string }> = {
+    "Strong Hire": {
+      cls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+      glow: "shadow-[0_0_15px_rgba(16,185,129,0.2)]",
+    },
+    "Hire": {
+      cls: "bg-blue-500/20 text-blue-300 border-blue-500/40",
+      glow: "shadow-[0_0_15px_rgba(59,130,246,0.2)]",
+    },
+    "No Hire": {
+      cls: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+      glow: "shadow-[0_0_15px_rgba(245,158,11,0.2)]",
+    },
+    "Strong No Hire": {
+      cls: "bg-red-500/20 text-red-300 border-red-500/40",
+      glow: "shadow-[0_0_15px_rgba(239,68,68,0.2)]",
+    },
   };
-  const cls = colors[signal] ?? "bg-zinc-700 text-zinc-300 border-zinc-600";
+  const c = config[signal] ?? { cls: "bg-zinc-700 text-zinc-300 border-zinc-600", glow: "" };
   return (
-    <span className={`inline-block px-3 py-1 rounded-full border text-sm font-semibold ${cls}`}>
+    <span className={`inline-block px-3 py-1 rounded-full border text-sm font-semibold ${c.cls} ${c.glow}`}>
       {signal}
     </span>
   );
@@ -78,14 +124,8 @@ export default function DebriefPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const roomId = params.roomId as string;
-  /**
-   * Role-based view filtering via ?role= query param.
-   * - "candidate" → simplified view: only score, verdict, summary, strengths, weaknesses
-   * - anything else (default) → full interviewer view with all details
-   */
   const viewRole = searchParams.get("role") === "candidate" ? "candidate" : "interviewer";
   const [room, setRoom] = useState<Room | null>(null);
-  /** Tracks whether polling has exceeded the 90-second timeout */
   const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
@@ -97,12 +137,10 @@ export default function DebriefPage() {
         .catch(() => null);
       if (!r) return;
       setRoom(r);
-      // Stop polling once debrief is ready and not just a "generating" placeholder
       const debrief = r.debrief as Debrief | null;
       if (debrief && debrief.status !== "generating") {
         clearInterval(id);
       }
-      // Show timeout message after 90s of polling without a completed debrief
       if (Date.now() - startTime > 90_000 && (!debrief || debrief.status === "generating")) {
         setTimedOut(true);
       }
@@ -116,32 +154,36 @@ export default function DebriefPage() {
   const debrief = room?.debrief as Debrief | null;
   const isReady = debrief && debrief.status !== "generating";
 
+  // ── Loading state — glass wrapper with glowing spinner ──────────────────
   if (!isReady) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-3">
-        <svg className="animate-spin w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-        </svg>
-        <p className="text-zinc-400">Generating evaluation…</p>
-        {timedOut && (
-          <p className="text-amber-400 text-sm mt-2">
-            This is taking longer than expected. The AI evaluation may have failed — try refreshing the page.
-          </p>
-        )}
+      <main className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <div className="p-10 rounded-2xl glass flex flex-col items-center gap-4 animate-fade-in-up">
+          <div className="relative">
+            <div className="absolute inset-0 w-6 h-6 rounded-full bg-amber-500/20 animate-glow-pulse blur-xl" />
+            <svg className="animate-spin w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+          </div>
+          <p className="text-zinc-400">Generating evaluation…</p>
+          {timedOut && (
+            <p className="text-amber-400 text-sm mt-2">
+              This is taking longer than expected. The AI evaluation may have failed — try refreshing the page.
+            </p>
+          )}
+        </div>
       </main>
     );
   }
 
-  // At this point isReady is true, meaning both room and room.debrief are non-null.
-  // TypeScript can't infer this from the `isReady` check, so we narrow explicitly.
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const safeRoom = room!;
   const d = safeRoom.debrief as Debrief;
 
   if (d.error) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-3xl mx-auto">
+      <main className="min-h-screen p-8 max-w-3xl mx-auto">
         <h1 className="text-2xl font-semibold">Session debrief</h1>
         <p className="text-amber-500 mt-4">{d.error}</p>
       </main>
@@ -156,10 +198,10 @@ export default function DebriefPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-3xl mx-auto">
+    <main className="min-h-screen p-8 max-w-3xl mx-auto">
 
-      {/* Header */}
-      <div className="flex flex-col gap-1">
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1 animate-fade-in-up">
         <h1 className="text-2xl font-semibold">Interview Evaluation</h1>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-400">
           {safeRoom.candidateName && <span>{safeRoom.candidateName}</span>}
@@ -189,8 +231,8 @@ export default function DebriefPage() {
         </div>
       </div>
 
-      {/* Verdict card */}
-      <div className="mt-6 p-5 rounded-xl border border-zinc-800 bg-zinc-900/60 flex flex-col gap-4">
+      {/* ── Verdict card — glass panel ─────────────────────────────────── */}
+      <div className="mt-6 p-5 rounded-xl glass flex flex-col gap-4 animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <p className="text-xs text-zinc-500 uppercase tracking-widest mb-1">Verdict</p>
@@ -208,20 +250,19 @@ export default function DebriefPage() {
         </div>
 
         {d.summary && (
-          <p className="text-zinc-300 text-sm leading-relaxed border-t border-zinc-800 pt-4">
+          <p className="text-zinc-300 text-sm leading-relaxed border-t border-white/[0.06] pt-4">
             {d.summary}
           </p>
         )}
       </div>
 
-      {/* Strengths & Weaknesses — two-column card with green/amber highlights */}
+      {/* ── Strengths & Weaknesses — glass panel ───────────────────────── */}
       {((d.strengths && d.strengths.length > 0) || (d.weaknesses && d.weaknesses.length > 0)) && (
-        <div className="mt-6 p-5 rounded-xl border border-zinc-800 bg-zinc-900/60">
+        <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "200ms" }}>
           <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-4">
             Strengths & Weaknesses
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Strengths column */}
             {d.strengths && d.strengths.length > 0 && (
               <div>
                 <h3 className="text-sm font-medium text-emerald-400 mb-2">Strengths</h3>
@@ -235,7 +276,6 @@ export default function DebriefPage() {
                 </ul>
               </div>
             )}
-            {/* Weaknesses column */}
             {d.weaknesses && d.weaknesses.length > 0 && (
               <div>
                 <h3 className="text-sm font-medium text-amber-400 mb-2">Areas for Improvement</h3>
@@ -253,9 +293,9 @@ export default function DebriefPage() {
         </div>
       )}
 
-      {/* Dimension scores — interviewer only */}
+      {/* ── Dimension scores — interviewer only, glass panel ────────────── */}
       {viewRole === "interviewer" && dimensions.some((d) => typeof d.score === "number") && (
-        <div className="mt-6 p-5 rounded-xl border border-zinc-800 bg-zinc-900/60">
+        <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "300ms" }}>
           <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-4">
             Dimension Scores
           </h2>
@@ -278,9 +318,9 @@ export default function DebriefPage() {
         </div>
       )}
 
-      {/* Integrity — interviewer only (candidates should not see integrity flags) */}
+      {/* ── Integrity — interviewer only, glass + red glow accents ──────── */}
       {viewRole === "interviewer" && typeof d.integrity_score === "number" && (
-        <div className="mt-6 p-5 rounded-xl border border-zinc-800 bg-zinc-900/60">
+        <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "400ms" }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest">
               Session Integrity
@@ -292,7 +332,7 @@ export default function DebriefPage() {
           </div>
           <ScoreBar score={d.integrity_score} max={5} />
           {d.integrity_flags && d.integrity_flags.length > 0 ? (
-            <div className="mt-4 p-3 rounded-lg bg-red-950/30 border border-red-900/40">
+            <div className="mt-4 p-3 rounded-lg bg-red-500/[0.06] border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.08)]">
               <p className="text-xs font-medium text-red-400 uppercase tracking-widest mb-2">Flags</p>
               <ul className="space-y-1.5">
                 {d.integrity_flags.map((flag, i) => (
@@ -309,9 +349,9 @@ export default function DebriefPage() {
         </div>
       )}
 
-      {/* Hire reasoning — interviewer only */}
+      {/* ── Hire reasoning — interviewer only ───────────────────────────── */}
       {viewRole === "interviewer" && d.hire_reasoning && (
-        <div className="mt-6 p-5 rounded-xl border border-zinc-800 bg-zinc-900/60">
+        <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "500ms" }}>
           <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-3">
             Reasoning
           </h2>
@@ -319,7 +359,7 @@ export default function DebriefPage() {
         </div>
       )}
 
-      {/* Qualitative sections — interviewer only (detailed analysis) */}
+      {/* ── Qualitative sections — interviewer only ─────────────────────── */}
       {viewRole === "interviewer" && <div className="mt-6 space-y-5">
         {[
           { key: "approach_analysis", label: "Approach & Algorithm", score: d.approach_score, max: 5 },
@@ -327,11 +367,15 @@ export default function DebriefPage() {
           { key: "code_quality", label: "Code Quality", score: d.code_quality_score, max: 5 },
           { key: "time_breakdown", label: "Time Breakdown" },
           { key: "code_evolution_analysis", label: "Code Evolution" },
-        ].map(({ key, label, score, max }) => {
+        ].map(({ key, label, score, max }, idx) => {
           const text = d[key as keyof Debrief] as string | undefined;
           if (!text) return null;
           return (
-            <section key={key} className="p-5 rounded-xl border border-zinc-800 bg-zinc-900/40">
+            <section
+              key={key}
+              className="p-5 rounded-xl glass animate-fade-in-up"
+              style={{ animationDelay: `${600 + idx * 100}ms` }}
+            >
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest">
                   {label}

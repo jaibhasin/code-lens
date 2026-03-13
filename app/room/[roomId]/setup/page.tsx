@@ -1,271 +1,170 @@
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * app/room/[roomId]/setup/page.tsx
+ *
+ * The problem-picker landing page — first screen an interviewer sees after
+ * creating a room.
+ *
+ * PURPOSE:
+ *   Presents 3 cards so the interviewer can choose HOW to source the problem.
+ *
+ * THREE PATHS:
+ *   1. LeetCode URL  → /room/[roomId]/setup/leetcode
+ *   2. Enter Manually → /room/[roomId]/setup/manual
+ *   3. AI Picks      → /room/[roomId]/setup/ai
+ *
+ * COMPANY NAME:
+ *   The "Your company name" field lives HERE (on the landing page) so it is
+ *   entered once regardless of which path is taken.
+ *   Saved to localStorage key "codelens_company" on every keystroke.
+ *   Sub-pages read it from localStorage on mount.
+ *
+ * GLASSMORPHISM:
+ *   - Company input uses .glass-input with amber focus glow
+ *   - Path cards use .glass-card with per-card accent glow on hover
+ *     (LeetCode=amber, Manual=white/subtle, AI=violet)
+ *   - CTA buttons have backdrop-blur + matching accent glow
+ *   - hover:scale-[1.01] micro-animation on cards
+ *   - Entire page wrapped in animate-fade-in-up
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState, useCallback } from "react";
-import type { Problem, ProblemExample, HiddenTest, ProblemDifficulty } from "@/lib/store";
+import { useState } from "react";
 
-const defaultExample: ProblemExample = { input: "", output: "", explanation: "" };
-const defaultHidden: HiddenTest = { input: "", expectedOutput: "" };
+// ── Card definitions ─────────────────────────────────────────────────────────
+// Each card represents one problem-source path.
+// `glowClass` controls the hover glow color per card.
 
-export default function RoomSetupPage() {
+const PATHS = [
+  {
+    id: "leetcode",
+    icon: "🔗",
+    title: "LeetCode URL",
+    description:
+      "Paste a LeetCode problem URL. We'll scrape the title, description, and examples automatically.",
+    cta: "Import from LeetCode",
+    /* Amber glow on hover — matches the LeetCode brand warmth */
+    glowClass: "hover:shadow-[0_0_30px_rgba(245,158,11,0.15)] hover:border-amber-500/40",
+    ctaClass:
+      "bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 backdrop-blur-sm",
+  },
+  {
+    id: "manual",
+    icon: "✏️",
+    title: "Write Manually",
+    description:
+      "Author a completely custom problem — title, description, examples, and hidden test cases.",
+    cta: "Write a problem",
+    /* Subtle white glow — neutral path, no strong brand color */
+    glowClass: "hover:shadow-[0_0_30px_rgba(255,255,255,0.05)] hover:border-zinc-400/40",
+    ctaClass:
+      "bg-white/[0.06] text-zinc-200 border border-white/[0.1] hover:bg-white/[0.1] backdrop-blur-sm",
+  },
+  {
+    id: "ai",
+    icon: "✨",
+    title: "AI Picks",
+    description:
+      "Describe what you want — difficulty, topic, optional hint. AI finds 3 matching problems, you pick one, AI rewrites it so the candidate can't Google it.",
+    cta: "Let AI pick",
+    /* Violet glow on hover — signals "AI / magic" */
+    glowClass: "hover:shadow-[0_0_30px_rgba(139,92,246,0.15)] hover:border-violet-500/40",
+    ctaClass:
+      "bg-violet-500/20 text-violet-300 border border-violet-500/50 hover:bg-violet-500/30 backdrop-blur-sm",
+  },
+] as const;
+
+// ── Component ────────────────────────────────────────────────────────────────
+
+export default function SetupLandingPage() {
   const params = useParams();
   const router = useRouter();
   const roomId = params.roomId as string;
 
-  const [company, setCompany] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [difficulty, setDifficulty] = useState<ProblemDifficulty | "">("");
-  const [examples, setExamples] = useState<ProblemExample[]>([{ ...defaultExample }]);
-  const [hiddenTests, setHiddenTests] = useState<HiddenTest[]>([{ ...defaultHidden }]);
-  const [copied, setCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [leetcodeUrl, setLeetcodeUrl] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
+  /* Company name — persisted to localStorage so sub-pages can read it.
+   * Initialised lazily from localStorage (no useEffect needed). */
+  const [company, setCompany] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("codelens_company") ?? "";
+  });
 
-  const roomLink = typeof window !== "undefined" ? `${window.location.origin}/room/${roomId}` : "";
-
-  const addExample = () => setExamples((e) => [...e, { ...defaultExample }]);
-  const removeExample = (i: number) => setExamples((e) => e.filter((_, j) => j !== i));
-  const updateExample = (i: number, field: keyof ProblemExample, value: string) => {
-    setExamples((e) => e.map((ex, j) => (j === i ? { ...ex, [field]: value } : ex)));
+  // Persist every keystroke to localStorage
+  const handleCompanyChange = (val: string) => {
+    setCompany(val);
+    localStorage.setItem("codelens_company", val);
   };
 
-  const addHidden = () => setHiddenTests((h) => [...h, { ...defaultHidden }]);
-  const removeHidden = (i: number) => setHiddenTests((h) => h.filter((_, j) => j !== i));
-  const updateHidden = (i: number, field: keyof HiddenTest, value: string) => {
-    setHiddenTests((h) => h.map((t, j) => (j === i ? { ...t, [field]: value } : t)));
-  };
-
-  const copyLink = useCallback(async () => {
-    await navigator.clipboard.writeText(roomLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [roomLink]);
-
-  const fetchFromLeetCode = async () => {
-    if (!leetcodeUrl.trim()) return;
-    setImportError(null);
-    setImporting(true);
-    try {
-      const res = await fetch("/api/import/leetcode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: leetcodeUrl.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setImportError(data.error ?? "Failed to fetch problem");
-        return;
-      }
-      const problem = data as Problem;
-      setTitle(problem.title);
-      setDescription(problem.description);
-      setExamples(
-        problem.examples.length > 0
-          ? problem.examples.map((e) => ({ ...e, explanation: e.explanation ?? "" }))
-          : [{ ...defaultExample }]
-      );
-      setHiddenTests(
-        problem.hiddenTests?.length > 0
-          ? problem.hiddenTests
-          : [{ ...defaultHidden }]
-      );
-      if (problem.difficulty) setDifficulty(problem.difficulty);
-      setLeetcodeUrl("");
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const saveAndGo = async () => {
-    setSaving(true);
-    const problem: Problem = {
-      title: title.trim(),
-      description: description.trim(),
-      examples: examples.filter((e) => e.input.trim() || e.output.trim()),
-      hiddenTests: hiddenTests.filter((h) => h.input.trim() || h.expectedOutput.trim()),
-      ...(difficulty ? { difficulty } : {}),
-    };
-    try {
-      await fetch(`/api/rooms/${roomId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        // Save the problem and the company name together in one request.
-        body: JSON.stringify({ problem, interviewerCompany: company.trim() }),
-      });
-      router.push(`/room/${roomId}?role=interviewer`);
-    } finally {
-      setSaving(false);
-    }
+  /* Navigate to the selected sub-page.
+   * Each sub-page reads company from localStorage and roomId from useParams(). */
+  const goTo = (subPath: string) => {
+    router.push(`/room/${roomId}/setup/${subPath}`);
   };
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-semibold">Configure problem</h1>
-      <p className="text-zinc-400 mt-1">Room: {roomId}</p>
+    <main className="min-h-screen text-zinc-100 p-8 max-w-2xl mx-auto animate-fade-in-up">
 
-      <div className="mt-6 p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
-        <label className="block text-sm font-medium text-zinc-300">Import from LeetCode</label>
-        <p className="text-xs text-zinc-500 mt-0.5">Paste a problem URL to fill title, description, and examples.</p>
-        <div className="mt-2 flex gap-2">
-          <input
-            value={leetcodeUrl}
-            onChange={(e) => setLeetcodeUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && fetchFromLeetCode()}
-            placeholder="https://leetcode.com/problems/two-sum/"
-            className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500"
-            disabled={importing}
-          />
-          <button
-            type="button"
-            onClick={fetchFromLeetCode}
-            disabled={importing || !leetcodeUrl.trim()}
-            className="px-4 py-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/50 text-sm font-medium hover:bg-amber-500/30 disabled:opacity-50 disabled:pointer-events-none"
-          >
-            {importing ? "Fetching…" : "Fetch problem"}
-          </button>
-        </div>
-        {importError && (
-          <p className="mt-2 text-sm text-red-400">{importError}</p>
-        )}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <h1 className="text-2xl font-semibold">Set up the interview</h1>
+      <p className="text-zinc-400 mt-1 text-sm">Room: {roomId}</p>
+
+      {/* ── Company name ─────────────────────────────────────────────────── */}
+      {/* Saved to localStorage so the chosen sub-page can pre-fill it. */}
+      <div className="mt-6">
+        <label className="block text-sm font-medium text-zinc-300">
+          Your company name
+        </label>
+        <input
+          value={company}
+          onChange={(e) => handleCompanyChange(e.target.value)}
+          className="mt-1 w-full rounded-lg glass-input px-3 py-2 text-sm placeholder:text-zinc-500 text-zinc-100"
+          placeholder="e.g. Acme Corp"
+        />
       </div>
 
-      <div className="mt-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-zinc-300">Your company name</label>
-          <input
-            value={company}
-            onChange={(e) => setCompany(e.target.value)}
-            className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2"
-            placeholder="e.g. Acme Corp"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-zinc-300">Title</label>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2"
-            placeholder="e.g. Two Sum"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-zinc-300">Difficulty</label>
-          <select
-            value={difficulty}
-            onChange={(e) => setDifficulty(e.target.value as ProblemDifficulty | "")}
-            className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-zinc-100"
+      {/* ── Path cards ───────────────────────────────────────────────────── */}
+      <div className="mt-8 space-y-3">
+        <p className="text-sm text-zinc-400 font-medium uppercase tracking-wider mb-4">
+          How do you want to choose the problem?
+        </p>
+
+        {PATHS.map((path) => (
+          <div
+            key={path.id}
+            className={`p-5 glass-card cursor-pointer ${path.glowClass} transition-all duration-300`}
+            onClick={() => goTo(path.id)}
           >
-            <option value="">Not specified</option>
-            <option value="Easy">Easy</option>
-            <option value="Medium">Medium</option>
-            <option value="Hard">Hard</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-zinc-300">Description (markdown)</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 min-h-[120px]"
-            placeholder="Problem statement..."
-          />
-        </div>
+            <div className="flex items-start justify-between gap-4">
+              {/* Left: icon + text */}
+              <div className="flex gap-4 items-start">
+                <span className="text-2xl select-none">{path.icon}</span>
+                <div>
+                  <h2 className="text-base font-semibold text-zinc-100">
+                    {path.title}
+                  </h2>
+                  <p className="text-sm text-zinc-400 mt-1 leading-relaxed">
+                    {path.description}
+                  </p>
+                </div>
+              </div>
 
-        <div>
-          <div className="flex justify-between items-center">
-            <label className="block text-sm font-medium text-zinc-300">Examples (visible to candidate)</label>
-            <button type="button" onClick={addExample} className="text-sm text-amber-500 hover:underline">
-              + Add
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            Input is passed as raw stdin — write just the value, e.g. <code className="bg-zinc-800 px-1 rounded">4</code> not <code className="bg-zinc-800 px-1 rounded">x=4</code>.
-            Multi-line inputs are fine (one value per line).
-          </p>
-          {examples.map((ex, i) => (
-            <div key={i} className="mt-2 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700 space-y-2">
-              <input
-                value={ex.input}
-                onChange={(e) => updateExample(i, "input", e.target.value)}
-                className="w-full rounded bg-zinc-800 px-2 py-1 text-sm"
-                placeholder="Input"
-              />
-              <input
-                value={ex.output}
-                onChange={(e) => updateExample(i, "output", e.target.value)}
-                className="w-full rounded bg-zinc-800 px-2 py-1 text-sm"
-                placeholder="Expected output"
-              />
-              <input
-                value={ex.explanation ?? ""}
-                onChange={(e) => updateExample(i, "explanation", e.target.value)}
-                className="w-full rounded bg-zinc-800 px-2 py-1 text-sm"
-                placeholder="Explanation (optional)"
-              />
-              {examples.length > 1 && (
-                <button type="button" onClick={() => removeExample(i)} className="text-sm text-red-400 hover:underline">
-                  Remove
-                </button>
-              )}
+              {/* Right: CTA button */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  // Prevent double-fire from card's onClick
+                  e.stopPropagation();
+                  goTo(path.id);
+                }}
+                className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${path.ctaClass}`}
+              >
+                {path.cta}
+              </button>
             </div>
-          ))}
-        </div>
-
-        <div>
-          <div className="flex justify-between items-center">
-            <label className="block text-sm font-medium text-zinc-300">Hidden test cases</label>
-            <button type="button" onClick={addHidden} className="text-sm text-amber-500 hover:underline">
-              + Add
-            </button>
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            Same stdin format — raw value only, e.g. <code className="bg-zinc-800 px-1 rounded">8</code>.
-            These are not shown to the candidate until after submission.
-          </p>
-          {hiddenTests.map((h, i) => (
-            <div key={i} className="mt-2 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700 space-y-2">
-              <input
-                value={h.input}
-                onChange={(e) => updateHidden(i, "input", e.target.value)}
-                className="w-full rounded bg-zinc-800 px-2 py-1 text-sm"
-                placeholder="Input"
-              />
-              <input
-                value={h.expectedOutput}
-                onChange={(e) => updateHidden(i, "expectedOutput", e.target.value)}
-                className="w-full rounded bg-zinc-800 px-2 py-1 text-sm"
-                placeholder="Expected output"
-              />
-              {hiddenTests.length > 1 && (
-                <button type="button" onClick={() => removeHidden(i)} className="text-sm text-red-400 hover:underline">
-                  Remove
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-8 flex flex-wrap gap-4 items-center">
-        <button
-          onClick={saveAndGo}
-          disabled={saving}
-          className="px-4 py-2 rounded-lg bg-amber-500 text-zinc-950 font-medium hover:bg-amber-400 disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save & go to room"}
-        </button>
-        <div className="flex items-center gap-2">
-          <input readOnly value={roomLink} className="w-72 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-400" />
-          <button
-            onClick={copyLink}
-            className="px-3 py-1 rounded bg-zinc-700 text-sm hover:bg-zinc-600"
-          >
-            {copied ? "Copied" : "Copy room link"}
-          </button>
-        </div>
+        ))}
       </div>
     </main>
   );

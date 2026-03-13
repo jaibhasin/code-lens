@@ -1,1 +1,199 @@
 @import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * globals.css — Dark Glassmorphism Design System
+ *
+ * Provides the foundational visual layer for CodeLens:
+ *   - CSS custom properties for glass effects, glow colors, blur amounts
+ *   - Body base styles with subtle gradient overlays for depth
+ *   - Custom scrollbar styling (thin, semi-transparent)
+ *   - Keyframe animations (fade-in-up, glow-pulse, shimmer, float)
+ *   - Reusable utility classes (.glass, .glass-input, .glass-card, .text-gradient, .glow-*)
+ *
+ * All animations are CSS-only — no JS animation loops.
+ * Max 2 backdrop-blur layers per view to maintain performance.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── CSS Custom Properties ─────────────────────────────────────────────────── */
+:root {
+  /* Glass effect tuning knobs */
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: 24px;
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+
+  /* Accent glow colors — used for buttons, borders, shadows */
+  --glow-amber: rgba(245, 158, 11, 0.3);
+  --glow-emerald: rgba(16, 185, 129, 0.3);
+  --glow-blue: rgba(59, 130, 246, 0.3);
+  --glow-violet: rgba(139, 92, 246, 0.3);
+  --glow-red: rgba(239, 68, 68, 0.3);
+}
+
+/* ── Base Styles ───────────────────────────────────────────────────────────── */
+/* Body background with layered radial gradients for ambient depth.
+ * Faint violet glow top-right + faint amber glow bottom-left create
+ * a subtle warm-cool color split that adds visual richness without
+ * competing with content. */
+@layer base {
+  body {
+    background-color: #09090b;
+    color: #f4f4f5;
+    /* Two faint radial gradient overlays for ambient depth */
+    background-image:
+      radial-gradient(ellipse 60% 50% at 80% 10%, rgba(139, 92, 246, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 60% at 15% 90%, rgba(245, 158, 11, 0.04) 0%, transparent 60%);
+    background-attachment: fixed;
+  }
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────────────────────── */
+/* Thin (6px) scrollbar with semi-transparent thumb.
+ * Blends with the dark glassmorphism aesthetic. */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Keyframe Animations ───────────────────────────────────────────────────── */
+
+/* fade-in-up: Content entrance — slides up 12px while fading in.
+ * Used on page load and card reveals. */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* glow-pulse: Soft breathing glow effect for loading/accent elements.
+ * Loops infinitely — use sparingly on spinners and active indicators. */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* shimmer: Diagonal gradient sweep — used for skeleton/loading states.
+ * Creates a "shine" effect that moves across the element. */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* float: Gentle vertical bobbing — decorative, used on glow orbs. */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* ── Utility Classes ───────────────────────────────────────────────────────── */
+@layer utilities {
+
+  /* .glass — Frosted glass panel. The core building block.
+   * Semi-transparent white bg + backdrop blur + subtle border + deep shadow.
+   * Use overflow-hidden on the parent for compositing optimization. */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* .glass-input — Input fields that match the glass aesthetic.
+   * Slightly more opaque bg than panels, with a focus glow ring. */
+  .glass-input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .glass-input:focus {
+    border-color: rgba(245, 158, 11, 0.4);
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);
+    outline: none;
+  }
+
+  /* .glass-card — Interactive glass panel with hover state.
+   * Extends .glass with rounded corners + scale/border transitions.
+   * Great for selectable cards and list items. */
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 0.75rem;
+    transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .glass-card:hover {
+    transform: scale(1.01);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  /* .text-gradient — Amber-to-violet gradient text.
+   * Used on hero titles for visual impact. */
+  .text-gradient {
+    background: linear-gradient(135deg, #f59e0b, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Glow utilities — colored box-shadow halos for buttons and accents.
+   * Each provides a resting glow; pair with hover: variants for intensity. */
+  .glow-amber {
+    box-shadow: 0 0 20px var(--glow-amber);
+  }
+  .glow-emerald {
+    box-shadow: 0 0 20px var(--glow-emerald);
+  }
+  .glow-blue {
+    box-shadow: 0 0 20px var(--glow-blue);
+  }
+  .glow-violet {
+    box-shadow: 0 0 20px var(--glow-violet);
+  }
+  .glow-red {
+    box-shadow: 0 0 20px var(--glow-red);
+  }
+
+  /* Animation utility classes — map to the keyframes above.
+   * Apply directly to elements for entrance/accent animations. */
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s ease-out both;
+  }
+
+  .animate-glow-pulse {
+    animation: glow-pulse 2s infinite;
+  }
+
+  .animate-shimmer {
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+}
