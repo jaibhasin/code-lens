@@ -218,14 +218,28 @@ interface MonacoWithYjsProps {
    * via Yjs awareness. The page uses this to render the presence indicator.
    */
   onPresenceChange?: (peers: AwarenessPeer[]) => void;
+  /**
+   * Called whenever the shared Yjs document changes (any insert or delete).
+   * Receives the number of characters inserted in the transaction so the
+   * room page can detect bulk inserts (potential pastes).
+   */
+  onContentChange?: (charDelta: number) => void;
+  /**
+   * Called when a clipboard paste is detected via Monaco's onDidPaste event.
+   */
+  onPaste?: (charCount: number, lineCount: number) => void;
 }
 
 export const MonacoWithYjs = forwardRef<MonacoWithYjsHandle, MonacoWithYjsProps>(
-  function MonacoWithYjs({ roomId, language, height = "100%", role, extraReadOnly = false, onPresenceChange }, ref) {
+  function MonacoWithYjs({ roomId, language, height = "100%", role, extraReadOnly = false, onPresenceChange, onContentChange, onPaste }, ref) {
   const [ready, setReady] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
+  const onContentChangeRef = useRef(onContentChange);
+  useEffect(() => { onContentChangeRef.current = onContentChange; }, [onContentChange]);
+  const onPasteRef = useRef(onPaste);
+  useEffect(() => { onPasteRef.current = onPaste; }, [onPaste]);
 
   /**
    * Boot the Yjs document and connect to the shared WebSocket room.
@@ -254,8 +268,25 @@ export const MonacoWithYjs = forwardRef<MonacoWithYjsHandle, MonacoWithYjsProps>
       role,
     });
 
+    const ytext = doc.getText("monaco");
+    // Only fire onContentChange for local transactions — remote edits from the
+    // interviewer (or other peers) should not be counted as candidate activity.
+    // event.transaction.local is true when the change originated on this client.
+    const contentObserver = (event: Y.YTextEvent) => {
+      if (!event.transaction.local) return; // skip remote edits
+      let insertedChars = 0;
+      for (const d of event.delta) {
+        if (d.insert && typeof d.insert === "string") {
+          insertedChars += d.insert.length;
+        }
+      }
+      onContentChangeRef.current?.(insertedChars);
+    };
+    ytext.observe(contentObserver);
+
     setReady(true);
     return () => {
+      ytext.unobserve(contentObserver);
       provider.destroy();
       doc.destroy();
       docRef.current = null;
@@ -370,7 +401,13 @@ export const MonacoWithYjs = forwardRef<MonacoWithYjsHandle, MonacoWithYjsProps>
     const model = editor.getModel();
     if (!model) return;
 
-    // Wire up the binding immediately so remote cursors / edits work right away.
+    editor.onDidPaste((e) => {
+      const range = e.range;
+      const lineCount = range.endLineNumber - range.startLineNumber + 1;
+      const pastedText = model.getValueInRange(range);
+      onPasteRef.current?.(pastedText.length, lineCount);
+    });
+
     const binding = new MonacoBinding(
       ytext,
       model,

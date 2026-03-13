@@ -95,6 +95,10 @@ export default function RoomPage() {
     const id = setInterval(async () => {
       const r = await fetch(`/api/rooms/${roomId}`).then((x) => x.json());
       if (r.status !== "waiting") {
+        // Suppress paste detection during the initial template load that fires
+        // when the session becomes active and the editor seeds its template.
+        suppressPasteDetectionRef.current = true;
+        setTimeout(() => { suppressPasteDetectionRef.current = false; }, 500);
         setRoom(r);
         clearInterval(id);
       }
@@ -146,17 +150,155 @@ export default function RoomPage() {
     [roomId]
   );
 
+  /**
+   * Behavioral signal tracking for the AI timeline.
+   *
+   * lastActivityRef     — timestamp of most recent content change
+   * lastKeystrokeEmit   — timestamp of the last "keystroke" event we pushed
+   * pauseDetectedRef    — true once we have emitted a "pause" for the current
+   *                       idle stretch (prevents duplicate pause events)
+   *
+   * Strategy:
+   *  - On every content change: update lastActivity; if > 60s elapsed since
+   *    last change (and we haven't reported a pause yet), emit "pause" first;
+   *    then emit "keystroke" at most once per 30 s of typing activity.
+   *  - A 15-second interval checks for sustained inactivity (> 90 s) to catch
+   *    pauses that happen while the candidate is just thinking (no typing).
+   */
+  const lastActivityRef = useRef<number>(0);
+  const lastKeystrokeEmitRef = useRef<number>(0);
+  const pauseDetectedRef = useRef<boolean>(false);
+  /**
+   * When true, paste detection is temporarily suppressed.
+   * Set before injecting templates (language switch / session start) to prevent
+   * large template insertions from being flagged as candidate paste events.
+   */
+  const suppressPasteDetectionRef = useRef<boolean>(false);
+
+  const handleContentChange = useCallback((charDelta: number) => {
+    if (role !== "candidate") return;
+    if (room?.status !== "active") return;
+
+    const now = Date.now();
+    const idleMs = now - lastActivityRef.current;
+
+    if (lastActivityRef.current > 0 && idleMs > 60_000 && !pauseDetectedRef.current) {
+      pushTimelineEvent("pause", { idleSeconds: Math.round(idleMs / 1000) });
+      pauseDetectedRef.current = true;
+    }
+
+    // Detect bulk inserts as potential paste (backup for middle-click paste etc.)
+    // Skip detection when suppressed — template injections are not pastes.
+    const timeSinceLast = now - lastActivityRef.current;
+    if (!suppressPasteDetectionRef.current && charDelta > 80 && (timeSinceLast < 2_000 || lastActivityRef.current === 0)) {
+      pushTimelineEvent("paste", { charCount: charDelta, lineCount: Math.ceil(charDelta / 40), source: "bulk_insert" });
+    }
+
+    lastActivityRef.current = now;
+    pauseDetectedRef.current = false;
+
+    if (now - lastKeystrokeEmitRef.current > 30_000) {
+      pushTimelineEvent("keystroke", { t: new Date(now).toISOString() });
+      lastKeystrokeEmitRef.current = now;
+    }
+  }, [role, room?.status, pushTimelineEvent]);
+
+  useEffect(() => {
+    if (role !== "candidate") return;
+    if (room?.status !== "active") return;
+
+    const id = setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (lastActivityRef.current > 0 && idleMs > 90_000 && !pauseDetectedRef.current) {
+        pushTimelineEvent("pause", { idleSeconds: Math.round(idleMs / 1000) });
+        pauseDetectedRef.current = true;
+      }
+    }, 15_000);
+
+    return () => clearInterval(id);
+  }, [role, room?.status, pushTimelineEvent]);
+
+  const handlePaste = useCallback((charCount: number, lineCount: number) => {
+    if (role !== "candidate") return;
+    if (room?.status !== "active") return;
+    pushTimelineEvent("paste", { charCount, lineCount, source: "clipboard" });
+  }, [role, room?.status, pushTimelineEvent]);
+
+  // Tab visibility tracking
+  const tabBlurTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (role !== "candidate") return;
+    if (room?.status !== "active") return;
+
+    const handler = () => {
+      if (document.hidden) {
+        tabBlurTimeRef.current = Date.now();
+        pushTimelineEvent("tab_blur", {});
+      } else {
+        const awayMs = tabBlurTimeRef.current > 0 ? Date.now() - tabBlurTimeRef.current : 0;
+        pushTimelineEvent("tab_focus", { awaySeconds: Math.round(awayMs / 1000) });
+        tabBlurTimeRef.current = 0;
+      }
+    };
+
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [role, room?.status, pushTimelineEvent]);
+
+  // Periodic code snapshots (every 60s)
+  const snapshotCountRef = useRef(0);
+
+  useEffect(() => {
+    if (role !== "candidate") return;
+    if (room?.status !== "active") return;
+
+    // Helper to capture a single snapshot and POST it to the server
+    const captureSnapshot = () => {
+      if (snapshotCountRef.current >= 60) return;
+      const code = editorRef.current?.getCode() ?? "";
+      const snapshot = {
+        timestamp: new Date().toISOString(),
+        code,
+        charCount: code.length,
+        lineCount: code.split("\n").length,
+      };
+      fetch(`/api/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot }),
+      }).catch(() => {});
+      snapshotCountRef.current++;
+    };
+
+    // Capture an immediate t=0 snapshot as a baseline for code evolution analysis.
+    // Without this, the first snapshot would be at 60s, leaving no reference point.
+    captureSnapshot();
+
+    const id = setInterval(captureSnapshot, 60_000);
+
+    return () => clearInterval(id);
+  }, [role, room?.status, roomId]);
+
+  /**
+   * Ends the interview session by sending the final code to the server.
+   * Awaits the PATCH to ensure the server acknowledged the end — if the request
+   * fails, shows an error alert so the user knows the debrief won't generate.
+   * The debrief generation itself runs in the background on the server (non-blocking).
+   */
   const endSession = async () => {
-    // Read code from Yjs doc via the editor ref. Falls back to room.code
-    // (last saved snapshot) if the ref isn't mounted yet.
     const code = editorRef.current?.getCode() ?? room?.code ?? "";
-    // Fire-and-forget — don't await the PATCH so the slow OpenAI debrief
-    // call doesn't block navigation. The debrief page will poll until ready.
-    fetch(`/api/rooms/${roomId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "ended", code }),
-    }).catch(() => {});
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ended", code }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    } catch (err) {
+      alert(`Failed to end session: ${(err as Error).message}. Please try again.`);
+      return; // Don't navigate — let the user retry
+    }
     router.push(`/room/${roomId}/debrief`);
   };
 
@@ -275,8 +417,12 @@ func main() {
     const previousTemplate = room ? LANG_TEMPLATES[room.language] : "";
     const isUntouched =
       currentCode.trim() === "" || currentCode === previousTemplate;
+    // Suppress paste detection while injecting the template — the large char
+    // insert is a template swap, not a candidate paste from an external source.
     if (isUntouched) {
+      suppressPasteDetectionRef.current = true;
       editorRef.current?.setCode(LANG_TEMPLATES[language]);
+      setTimeout(() => { suppressPasteDetectionRef.current = false; }, 500);
     }
 
     setRoom((r) => (r ? { ...r, language } : null));
@@ -536,6 +682,8 @@ func main() {
               role={role}
               extraReadOnly={role === "candidate" && room.status === "waiting"}
               onPresenceChange={setPeers}
+              onContentChange={handleContentChange}
+              onPaste={handlePaste}
             />
             {room.status === "waiting" && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-950/80 backdrop-blur-sm">

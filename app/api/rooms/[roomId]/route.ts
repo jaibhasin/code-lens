@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoom } from "@/lib/store";
-import type { Problem, TimelineEvent } from "@/lib/store";
+import type { Problem, TimelineEvent, CodeSnapshot } from "@/lib/store";
 import { generateDebrief } from "@/lib/ai-debrief";
 
 export async function GET(
@@ -45,14 +45,17 @@ export async function PATCH(
       if (body.code !== undefined) {
         room.code = body.code;
       }
-      try {
-        room.debrief = await generateDebrief(room);
-      } catch (err) {
-        room.debrief = {
-          error: (err as Error).message,
-          summary: "Debrief generation failed.",
-        };
-      }
+      // Set a placeholder status so the debrief page knows generation is in progress.
+      // Run the actual AI generation in the background — don't block the PATCH response.
+      room.debrief = { status: "generating" };
+      generateDebrief(room)
+        .then((d) => { room.debrief = d; })
+        .catch((err) => {
+          room.debrief = {
+            error: (err as Error).message,
+            summary: "Debrief generation failed.",
+          };
+        });
     }
   }
   if (body.code !== undefined && body.status !== "ended") {
@@ -60,6 +63,12 @@ export async function PATCH(
   }
   if (body.debrief !== undefined) {
     room.debrief = body.debrief;
+  }
+  if (body.snapshot !== undefined) {
+    const snap = body.snapshot as CodeSnapshot;
+    if (snap.timestamp && snap.code !== undefined && room.snapshots.length < 60) {
+      room.snapshots.push(snap);
+    }
   }
   if (body.interviewerCompany !== undefined) {
     room.interviewerCompany = body.interviewerCompany;

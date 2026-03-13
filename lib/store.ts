@@ -11,11 +11,14 @@ export interface HiddenTest {
   expectedOutput: string;
 }
 
+export type ProblemDifficulty = "Easy" | "Medium" | "Hard";
+
 export interface Problem {
   title: string;
   description: string;
   examples: ProblemExample[];
   hiddenTests: HiddenTest[];
+  difficulty?: ProblemDifficulty;
 }
 
 export type ParticipantRole = "interviewer" | "candidate";
@@ -26,13 +29,24 @@ export interface Participant {
   joinedAt: number;
 }
 
+export interface CodeSnapshot {
+  timestamp: string;
+  code: string;
+  charCount: number;
+  lineCount: number;
+}
+
+// All possible timeline event types tracked during an interview session.
+// Each maps to a specific candidate behavior detected by the room page.
 export type TimelineEventType =
   | "keystroke"
-  | "deletion"
   | "run"
   | "submit"
   | "pause"
-  | "language_change";
+  | "language_change"
+  | "paste"
+  | "tab_blur"
+  | "tab_focus";
 
 export interface TimelineEvent {
   timestamp: string;
@@ -71,6 +85,7 @@ export interface Room {
   timeline: TimelineEvent[];
   code: string;
   runs: RunRecord[];
+  snapshots: CodeSnapshot[];
   status: RoomStatus;
   startedAt: number | null;
   endedAt: number | null;
@@ -101,6 +116,7 @@ export function createRoom(roomId: string): Room {
     timeline: [],
     code: "",
     runs: [],
+    snapshots: [],
     status: "waiting",
     startedAt: null,
     endedAt: null,

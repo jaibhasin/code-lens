@@ -11,6 +11,7 @@
     "ws:yjs": "node node_modules/@y/websocket-server/src/server.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@monaco-editor/react": "^4.7.0",
     "@y/websocket-server": "^0.1.5",
     "monaco-editor": "^0.55.1",

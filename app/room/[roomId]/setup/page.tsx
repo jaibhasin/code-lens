@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useCallback } from "react";
-import type { Problem, ProblemExample, HiddenTest } from "@/lib/store";
+import type { Problem, ProblemExample, HiddenTest, ProblemDifficulty } from "@/lib/store";
 
 const defaultExample: ProblemExample = { input: "", output: "", explanation: "" };
 const defaultHidden: HiddenTest = { input: "", expectedOutput: "" };
@@ -15,6 +15,7 @@ export default function RoomSetupPage() {
   const [company, setCompany] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [difficulty, setDifficulty] = useState<ProblemDifficulty | "">("");
   const [examples, setExamples] = useState<ProblemExample[]>([{ ...defaultExample }]);
   const [hiddenTests, setHiddenTests] = useState<HiddenTest[]>([{ ...defaultHidden }]);
   const [copied, setCopied] = useState(false);
@@ -71,6 +72,7 @@ export default function RoomSetupPage() {
           ? problem.hiddenTests
           : [{ ...defaultHidden }]
       );
+      if (problem.difficulty) setDifficulty(problem.difficulty);
       setLeetcodeUrl("");
     } finally {
       setImporting(false);
@@ -84,6 +86,7 @@ export default function RoomSetupPage() {
       description: description.trim(),
       examples: examples.filter((e) => e.input.trim() || e.output.trim()),
       hiddenTests: hiddenTests.filter((h) => h.input.trim() || h.expectedOutput.trim()),
+      ...(difficulty ? { difficulty } : {}),
     };
     try {
       await fetch(`/api/rooms/${roomId}`, {
@@ -147,6 +150,19 @@ export default function RoomSetupPage() {
             className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2"
             placeholder="e.g. Two Sum"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-zinc-300">Difficulty</label>
+          <select
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value as ProblemDifficulty | "")}
+            className="mt-1 w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-zinc-100"
+          >
+            <option value="">Not specified</option>
+            <option value="Easy">Easy</option>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </select>
         </div>
         <div>
           <label className="block text-sm font-medium text-zinc-300">Description (markdown)</label>
