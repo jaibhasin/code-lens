@@ -38,6 +38,8 @@ export interface CodeSnapshot {
 
 // All possible timeline event types tracked during an interview session.
 // Each maps to a specific candidate behavior detected by the room page.
+// "fullscreen_exit" is an integrity signal — candidate left fullscreen mode
+// (similar to tab_blur: indicates they may have accessed external resources).
 export type TimelineEventType =
   | "keystroke"
   | "run"
@@ -46,7 +48,8 @@ export type TimelineEventType =
   | "language_change"
   | "paste"
   | "tab_blur"
-  | "tab_focus";
+  | "tab_focus"
+  | "fullscreen_exit";
 
 export interface TimelineEvent {
   timestamp: string;

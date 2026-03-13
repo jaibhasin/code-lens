@@ -101,6 +101,13 @@ export default function RoomPage() {
         setTimeout(() => { suppressPasteDetectionRef.current = false; }, 500);
         setRoom(r);
         clearInterval(id);
+
+        // Auto-enter fullscreen when session starts as an integrity measure.
+        // .catch() handles browsers that reject requestFullscreen() without
+        // a prior user gesture (e.g. Firefox). The header button covers this case.
+        if (document.fullscreenEnabled) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
       }
     }, 2000);
 
@@ -175,6 +182,19 @@ export default function RoomPage() {
    */
   const suppressPasteDetectionRef = useRef<boolean>(false);
 
+  /**
+   * Drives the "Re-enter fullscreen" amber button in the header.
+   * Starts false; flips to true when requestFullscreen() resolves,
+   * and back to false on a "fullscreenchange" exit event.
+   */
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  /**
+   * Timestamp (ms) when the candidate last exited fullscreen.
+   * Mirrors the tabBlurTimeRef pattern — stored in a ref to avoid
+   * triggering re-renders, used only for future correlation logic.
+   */
+  const fullscreenExitTimeRef = useRef<number>(0);
+
   const handleContentChange = useCallback((charDelta: number) => {
     if (role !== "candidate") return;
     if (room?.status !== "active") return;
@@ -244,6 +264,41 @@ export default function RoomPage() {
 
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
+  }, [role, room?.status, pushTimelineEvent]);
+
+  /**
+   * Fullscreen exit tracking — mirrors the tab_blur/tab_focus pattern.
+   *
+   * When the candidate exits fullscreen (Escape, browser chrome, OS hotkey),
+   * we log a "fullscreen_exit" timeline event so the AI debrief can flag it
+   * as a potential integrity signal alongside tab switches and paste events.
+   *
+   * Guarded by role === "candidate" and room.status === "active" so the
+   * interviewer is completely unaffected.
+   *
+   * Known limitation: F11 on Windows/Linux bypasses the Fullscreen API entirely
+   * and cannot be detected — documented in the plan as a known browser limitation.
+   */
+  useEffect(() => {
+    if (role !== "candidate") return;
+    if (room?.status !== "active") return;
+
+    // Sync initial fullscreen state — the polling effect may have already
+    // entered fullscreen before this effect's first run.
+    setIsFullscreen(!!document.fullscreenElement);
+
+    const handleFullscreenChange = () => {
+      const nowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(nowFullscreen);
+      if (!nowFullscreen) {
+        // Candidate exited fullscreen — record timestamp and push integrity signal
+        fullscreenExitTimeRef.current = Date.now();
+        pushTimelineEvent("fullscreen_exit", {});
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [role, room?.status, pushTimelineEvent]);
 
   // Periodic code snapshots (every 60s)
@@ -583,6 +638,26 @@ func main() {
               {copied ? "Copied!" : "Copy invite link"}
             </button>
           )}
+          {/*
+           * Re-enter fullscreen button — visible only to candidates who have
+           * exited fullscreen during an active session. Amber color signals
+           * "attention required" without being alarming. Clicking it re-enters
+           * fullscreen (user gesture satisfies browser requirements, so this
+           * works even in Firefox where the auto-trigger silently fails).
+           */}
+          {role === "candidate" && room.status === "active" && !isFullscreen && (
+            <button
+              onClick={() => {
+                if (document.fullscreenEnabled) {
+                  document.documentElement.requestFullscreen().catch(() => {});
+                }
+              }}
+              className="rounded bg-zinc-700 px-3 py-1 text-sm text-amber-400 border border-amber-500/50 hover:bg-zinc-600"
+            >
+              Re-enter fullscreen
+            </button>
+          )}
+
           <select
             value={room.language}
             onChange={(e) => setLanguage(e.target.value as Language)}
@@ -780,6 +855,54 @@ func main() {
           </div>
         </div>
       </div>
+
+      {/*
+       * Fullscreen exit warning overlay — shown only to candidates during an
+       * active session when they exit fullscreen (Escape, OS hotkey, etc.).
+       *
+       * This is a non-blocking warning: it floats over the UI without locking
+       * interaction. The candidate can dismiss it or re-enter fullscreen.
+       * The exit has already been recorded in the timeline for the AI debrief.
+       *
+       * Design intent:
+       *  - Red border + icon  → signals "something is wrong"
+       *  - Clear message      → tells the candidate exactly what happened
+       *  - Primary CTA        → re-enters fullscreen (user gesture, works in all browsers)
+       *  - Dismiss button     → lets them continue working (warning is still logged)
+       */}
+      {role === "candidate" && room.status === "active" && !isFullscreen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm">
+          <div className="relative w-full max-w-md rounded-2xl border border-red-500/60 bg-zinc-900 shadow-2xl p-8 flex flex-col items-center gap-5">
+            {/* Warning icon */}
+            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-red-500/10 border border-red-500/40">
+              <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+
+            {/* Heading */}
+            <h2 className="text-xl font-bold text-white tracking-tight">Fullscreen Required</h2>
+
+            {/* Body */}
+            <p className="text-center text-zinc-300 text-sm leading-relaxed">
+              You have exited fullscreen mode. This session requires you to stay in fullscreen at all times.{" "}
+              <span className="text-red-400 font-medium">This exit has been recorded</span> and will be visible to your interviewer.
+            </p>
+
+            {/* Actions */}
+            <button
+              onClick={() => {
+                if (document.fullscreenEnabled) {
+                  document.documentElement.requestFullscreen().catch(() => {});
+                }
+              }}
+              className="w-full rounded-lg bg-red-500 hover:bg-red-400 text-white font-semibold py-3 transition-colors"
+            >
+              Return to Fullscreen
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

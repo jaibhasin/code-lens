@@ -56,28 +56,30 @@ The interviewer specifies:
 
 ## Architecture
 
-### Vector Database: Upstash Vector
-Chosen because:
-- **Serverless** — no always-on infrastructure, perfect for Next.js/Vercel
-- **Built-in embedding** — no OpenAI API key needed; Upstash handles embedding internally
-- **Free tier** — generous for this use case
-- **Simple setup** — just 2 env vars: `UPSTASH_VECTOR_REST_URL` + `UPSTASH_VECTOR_REST_TOKEN`
-- **One-time seed script** — embed all ~2500 free LeetCode problems once; update anytime
+### Vector Database: Upstash Vector + OpenAI Embeddings
+- **Upstash Vector** — serverless vector DB, free tier, perfect for Next.js/Vercel
+- **OpenAI `text-embedding-3-small`** — industry gold standard for semantic search, 1536 dimensions
+  - Seeding cost: ~500 problems × ~100 tokens = **~$0.001 one-time**
+  - Per-query cost: ~100 tokens = fraction of a cent
+- 3 new env vars: `UPSTASH_VECTOR_REST_URL`, `UPSTASH_VECTOR_REST_TOKEN`, `OPENAI_API_KEY`
 
 ### What gets stored in each vector record
 ```
 id:       "two-sum"                          (the LeetCode slug)
-vector:   [float32 × 1536]                  (embedding of the text below)
+vector:   [float32 × 1536]                  (OpenAI text-embedding-3-small)
 metadata: {
   slug:       "two-sum",
   title:      "Two Sum",
   difficulty: "Easy",
   topics:     ["Arrays", "Hash Table"],
-  summary:    "Given an array of integers, return indices of the two numbers that add up to a target. Use a hash map for O(n) lookup. Classic hash table application — the trick is storing complement → index."
+  summary:    "Use a hash map to store complement → index pairs for O(n) lookup.
+               Classic hash table application — the trick is one pass through
+               the array while checking if the needed complement already exists."
 }
 ```
 
-The `summary` field is the key — it describes the **algorithmic insight**, not the problem story, so embeddings cluster by technique rather than theme.
+The embedded text = `"Easy Arrays Hash Table. <Claude-generated algorithmic summary>"`.
+The `summary` describes the **technique**, not the problem story — so embeddings cluster by algorithm, not narrative.
 
 ### Query flow
 ```
@@ -85,7 +87,9 @@ Interviewer prompt: "medium sliding window not too obvious"
       ↓
 Build query string: "Medium Sliding Window medium sliding window not too obvious"
       ↓
-Upstash Vector similarity search (top 10, filtered by difficulty/topic metadata)
+OpenAI text-embedding-3-small → 1536-dim query vector
+      ↓
+Upstash Vector similarity search (top 10)
       ↓
 Claude re-ranks 10 → picks best 3 with reasoning
       ↓
@@ -176,33 +180,58 @@ No OpenAI key needed — Upstash handles embedding internally.
 
 ## Seed Script (`scripts/seed-problems.ts`)
 
-Runs once (or whenever you want to update the dataset):
-1. Script contains a hardcoded list of ~300-500 free-tier LeetCode problem slugs (just the slugs — no content needed upfront)
-2. For each slug:
-   - Fetch the real problem via the existing `/api/import/leetcode` scraper (gets title, description, difficulty, examples)
-   - Ask Claude to write a 2-3 sentence **algorithmic summary** — describes the technique, data structure, and key insight, NOT the story wrapper
-   - Build `data` string: `"${difficulty} ${topics.join(' ')}. ${claudeSummary}"`
-   - Call `vectorIndex.upsert({ id: slug, data, metadata: { slug, title, difficulty, topics, summary } })`
-3. Upstash auto-embeds `data` using `bge-m3` — no embedding model to call directly
-4. Run with: `npx tsx scripts/seed-problems.ts`
+### One-time setup
+1. Create a free Upstash Vector index at [console.upstash.com](https://console.upstash.com) → "Vector" → "Create Index"
+   - **Dimensions:** `1536` (matches OpenAI `text-embedding-3-small`)
+   - **Distance metric:** `COSINE`
+   - Copy `REST URL` and `REST TOKEN` into `.env`
+2. Add `OPENAI_API_KEY` to `.env`
+3. Start the Next.js dev server (`npm run dev`) — the seed script calls the local API
+4. Run: `npx tsx scripts/seed-problems.ts`
+
+### How it iterates through problems
+
+The script has a hardcoded list of ~300-500 free-tier LeetCode slugs. It processes them **sequentially** (not in parallel) with a 500ms delay between each to avoid rate limits:
+
+```
+for each slug in SLUGS:
+  1. FETCH   → POST /api/import/leetcode { slug }
+               gets real title, description, difficulty, examples from LeetCode
+
+  2. SUMMARIZE → ask Claude for a 2-3 sentence algorithmic summary
+                 (technique-focused: data structure, approach, key insight)
+
+  3. BUILD   → embedText = "${difficulty} ${topics}. ${claudeSummary}"
+
+  4. EMBED   → OpenAI text-embedding-3-small(embedText) → float32[1536]
+
+  5. UPSERT  → vectorIndex.upsert({
+                 id: slug,
+                 vector: embedding,
+                 metadata: { slug, title, difficulty, topics, summary }
+               })
+
+  6. LOG     → "✓ sliding-window-maximum (Hard) [47/312]"
+```
+
+**Resume-safe:** Script checks if slug already exists in Upstash before processing — skips if found. Safe to re-run after interruptions.
 
 ### Example of what gets stored
 ```
-id:   "sliding-window-maximum"
-data: "Hard Sliding Window Deque. Maintain a monotonic deque of indices to track
-       the maximum element in a fixed-size window. Evict elements from the back
-       when a larger element arrives, and from the front when out of window.
-       Achieves O(n) overall by ensuring each element is enqueued/dequeued once."
+id:     "sliding-window-maximum"
+vector: [float32 × 1536]  ← OpenAI embedding of the text below
 metadata: {
   slug:       "sliding-window-maximum",
   title:      "Sliding Window Maximum",
   difficulty: "Hard",
   topics:     ["Sliding Window", "Deque"],
-  summary:    "Maintain a monotonic deque..."
+  summary:    "Maintain a monotonic deque of indices to track the maximum in a
+               fixed-size window. Evict from the back when a larger element
+               arrives, from the front when out of window. O(n) overall."
 }
 ```
 
-The `summary` describes the **algorithm** so embeddings cluster by technique, not problem story.
+The embedded text = `"Hard Sliding Window Deque. Maintain a monotonic deque..."` — describes the **algorithm**, not the story, so similar techniques cluster together in vector space.
 
 ---
 
@@ -225,3 +254,4 @@ Seeding ~2500 problems: ~$0.005 one-time (Upstash free tier covers it entirely).
 | 2026-03-13 | Initial design — 3-option picker, AI rewrite flow |
 | 2026-03-13 | Switched from JSON dataset to Upstash Vector for semantic search |
 | 2026-03-13 | Seed strategy finalized: Claude auto-generates algorithmic summaries during seeding (no manual effort) |
+| 2026-03-13 | Switched from Upstash built-in embedding to OpenAI `text-embedding-3-small` for better semantic quality |

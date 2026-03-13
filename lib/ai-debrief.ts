@@ -237,9 +237,12 @@ function buildIntegritySignals(room: Room): string {
   const pastes = events.filter((e) => e.event === "paste");
   const blurs = events.filter((e) => e.event === "tab_blur");
   const focuses = events.filter((e) => e.event === "tab_focus");
+  // fullscreen_exit is an integrity signal parallel to tab_blur:
+  // candidate left the fullscreen view, potentially to access external resources.
+  const fullscreenExits = events.filter((e) => e.event === "fullscreen_exit");
 
-  if (pastes.length === 0 && blurs.length === 0) {
-    return "No paste events or tab switches detected. All code appears to have been typed organically.";
+  if (pastes.length === 0 && blurs.length === 0 && fullscreenExits.length === 0) {
+    return "No paste events, tab switches, or fullscreen exits detected. All code appears to have been typed organically.";
   }
 
   function minuteMark(ts: string): string {
@@ -276,6 +279,17 @@ function buildIntegritySignals(room: Room): string {
     lines.push(`  - ${minuteMark(sortedBlurs[i].timestamp)}: left tab${awaySec > 0 ? ` for ${awaySec}s` : ""}`);
   }
   if (totalAway > 0) lines.push(`  Total time away: ${totalAway}s`);
+
+  // Fullscreen exits — each exit is a discrete integrity event.
+  // Listed individually so the AI can correlate them with pastes/tab switches.
+  if (fullscreenExits.length > 0) {
+    lines.push(`Fullscreen exits: ${fullscreenExits.length} detected`);
+    for (const fx of fullscreenExits) {
+      lines.push(`  - ${minuteMark(fx.timestamp)}: candidate exited fullscreen`);
+    }
+  } else {
+    lines.push("Fullscreen exits: 0");
+  }
 
   // Correlate: paste within 30s after a tab_focus
   const pasteAfterSwitch: string[] = [];
