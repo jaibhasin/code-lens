@@ -177,8 +177,7 @@ export default function DebriefPage() {
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const safeRoom = room!;
+  const safeRoom = room as Room;
   const d = safeRoom.debrief as Debrief;
 
   if (d.error) {
