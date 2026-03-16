@@ -49,7 +49,26 @@ export type TimelineEventType =
   | "paste"
   | "tab_blur"
   | "tab_focus"
-  | "fullscreen_exit";
+  | "fullscreen_exit"
+  | "gaze_calibration_complete"
+  | "gaze_calibration_skipped"
+  | "gaze_off_screen_streak";
+
+export type GazeZone =
+  | "on_screen"
+  | "off_left"
+  | "off_right"
+  | "off_top"
+  | "off_bottom"
+  | "unknown";
+
+export interface GazeSample {
+  ts: number;
+  x: number;
+  y: number;
+  zone: GazeZone;
+  conf: number;
+}
 
 export interface TimelineEvent {
   timestamp: string;
@@ -97,6 +116,8 @@ export interface Room {
   interviewerCompany: string;
   /** Candidate's name, entered when they land on the room page. */
   candidateName: string;
+  gazeCalibrated: boolean;
+  gazeSamples: GazeSample[];
 }
 
 const rooms = new Map<string, Room>();
@@ -126,6 +147,8 @@ export function createRoom(roomId: string): Room {
     debrief: null,
     interviewerCompany: "",
     candidateName: "",
+    gazeCalibrated: false,
+    gazeSamples: [],
   };
   rooms.set(roomId, room);
   return room;

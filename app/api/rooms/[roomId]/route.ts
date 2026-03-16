@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoom } from "@/lib/store";
-import type { Problem, TimelineEvent, CodeSnapshot } from "@/lib/store";
+import type { Problem, TimelineEvent, CodeSnapshot, GazeSample } from "@/lib/store";
 import { generateDebrief } from "@/lib/ai-debrief";
 
 export async function GET(
@@ -75,6 +75,12 @@ export async function PATCH(
   }
   if (body.candidateName !== undefined) {
     room.candidateName = body.candidateName;
+  }
+  if (body.gazeSamples && Array.isArray(body.gazeSamples)) {
+    room.gazeSamples.push(...(body.gazeSamples as GazeSample[]));
+  }
+  if (body.gazeCalibrated !== undefined) {
+    room.gazeCalibrated = body.gazeCalibrated;
   }
 
   return NextResponse.json(room);

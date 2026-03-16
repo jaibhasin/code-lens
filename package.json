@@ -21,6 +21,7 @@
     "openai": "^6.28.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "webgazer": "^3.5.3",
     "ws": "^8.19.0",
     "y-monaco": "^0.1.6",
     "y-websocket": "^3.0.0",

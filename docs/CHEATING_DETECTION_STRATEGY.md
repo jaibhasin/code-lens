@@ -529,4 +529,31 @@ Integrity Score = 100 - Σ(signal_weight × signal_severity)
 
 ---
 
+## Implemented: Gaze Tracking (WebGazer.js)
+
+### What was built
+- **5-point click calibration** during candidate waiting phase (corners + center)
+- **2Hz continuous gaze tracking** during active session via `useGazeTracker` hook
+- **Zone classification**: on_screen, off_left, off_right, off_top, off_bottom, unknown
+- **Gaze samples batched** to server every 5s; `sendBeacon` fallback on tab close
+- **Unified heatmap** on interviewer debrief page: outer rectangle (field of view) + inner rectangle (screen) with Gaussian heat blobs
+- **AI integrity signal extension**: off-screen ratio, direction breakdown, gaze-paste cross-correlation
+- **Timeline events**: `gaze_calibration_complete`, `gaze_calibration_skipped`, `gaze_off_screen_streak`
+
+### Key decisions
+- WebGazer chosen for MVP speed; replacement with MediaPipe documented in `future_improvements/webgazer-replacement.md`
+- Calibration placed in waiting phase (after name gate, before session start) to avoid dead time
+- 2-point validation pass after calibration with one retry on failure
+- Gaze data informs integrity score but never auto-fails candidates
+- No raw video stored; only `(x, y, zone, confidence)` tuples sent to server
+
+### Files
+- `lib/store.ts` — GazeSample, GazeZone types, Room fields
+- `components/GazeCalibration.tsx` — 3-stage calibration overlay
+- `hooks/useGazeTracker.ts` — 2Hz sampling + batching hook
+- `components/GazeHeatmap.tsx` — Canvas-based debrief heatmap
+- `lib/ai-debrief.ts` — Extended buildIntegritySignals with gaze data
+- `app/room/[roomId]/page.tsx` — Room integration
+- `app/room/[roomId]/debrief/page.tsx` — Heatmap card
+
 *Last updated: March 2026*

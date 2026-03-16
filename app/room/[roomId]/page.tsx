@@ -6,6 +6,7 @@ import type { Room, Language } from "@/lib/store";
 import type { TestResult } from "@/lib/store";
 import dynamic from "next/dynamic";
 import type { MonacoWithYjsHandle, AwarenessPeer } from "@/components/MonacoWithYjs";
+import { useGazeTracker } from "@/hooks/useGazeTracker";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -38,6 +39,10 @@ const MonacoWithYjs = dynamic(
   { ssr: false }
 ) as typeof import("@/components/MonacoWithYjs").MonacoWithYjs;
 
+const GazeCalibration = dynamic(() => import("@/components/GazeCalibration"), {
+  ssr: false,
+});
+
 export default function RoomPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -56,6 +61,8 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [candidateName, setCandidateName] = useState("");
   const [showNameGate, setShowNameGate] = useState(role === "candidate");
+  const [showCalibration, setShowCalibration] = useState(false);
+  const [gazeCalibrated, setGazeCalibrated] = useState(false);
   const editorRef = useRef<MonacoWithYjsHandle>(null);
   const router = useRouter();
 
@@ -114,6 +121,7 @@ export default function RoomPage() {
     });
     setRoom((r) => (r ? { ...r, candidateName: trimmed } : null));
     setShowNameGate(false);
+    setShowCalibration(true);
   };
 
   const markActive = async () => {
@@ -239,6 +247,12 @@ export default function RoomPage() {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [role, room?.status, pushTimelineEvent]);
+
+  useGazeTracker(
+    roomId,
+    gazeCalibrated && role === "candidate" && room?.status === "active",
+    pushTimelineEvent
+  );
 
   // Periodic code snapshots (every 60s)
   const snapshotCountRef = useRef(0);
@@ -511,6 +525,18 @@ func main() {
           </div>
         </div>
       </main>
+    );
+  }
+
+  if (showCalibration && role === "candidate") {
+    return (
+      <GazeCalibration
+        roomId={roomId}
+        onComplete={(calibrated) => {
+          setGazeCalibrated(calibrated);
+          setShowCalibration(false);
+        }}
+      />
     );
   }
 

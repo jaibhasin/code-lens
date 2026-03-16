@@ -318,6 +318,64 @@ function buildIntegritySignals(room: Room): string {
     lines.push("Paste-after-tab-switch correlations: 0");
   }
 
+  // Gaze tracking signals
+  if (!room.gazeCalibrated) {
+    lines.push("");
+    lines.push("Gaze tracking: unavailable — candidate did not complete calibration.");
+  } else if (room.gazeSamples && room.gazeSamples.length > 0) {
+    const validSamples = room.gazeSamples.filter((s) => s.zone !== "unknown");
+    const offScreen = validSamples.filter((s) => s.zone !== "on_screen");
+    const totalValid = validSamples.length;
+
+    if (totalValid > 0) {
+      const offScreenRatio = offScreen.length / totalValid;
+      const offPct = Math.round(offScreenRatio * 100);
+      lines.push("");
+      lines.push(`Gaze tracking: ${totalValid} valid samples, ${100 - offPct}% on-screen, ${offPct}% off-screen`);
+
+      const dirCounts: Record<string, number> = {};
+      for (const s of offScreen) {
+        dirCounts[s.zone] = (dirCounts[s.zone] ?? 0) + 1;
+      }
+      for (const [dir, count] of Object.entries(dirCounts)) {
+        const pct = Math.round((count / totalValid) * 100);
+        const label = dir.replace("off_", "");
+        lines.push(`  - Off-${label}: ${pct}%${pct > 15 ? " (elevated)" : ""}`);
+      }
+
+      if (offScreenRatio > 0.20) {
+        lines.push(`  *** ${offPct}% off-screen gaze — elevated concern`);
+      }
+
+      // Cross-correlate gaze off-screen streaks with paste events
+      const gazeStreaks = events.filter((e) => e.event === "gaze_off_screen_streak");
+      if (gazeStreaks.length > 0 && pastes.length > 0) {
+        const gazeAfterPaste: string[] = [];
+        for (const gs of gazeStreaks) {
+          const gsTime = new Date(gs.timestamp).getTime();
+          for (const p of pastes) {
+            const pTime = new Date(p.timestamp).getTime();
+            if (Math.abs(gsTime - pTime) < 30_000) {
+              const chars = (p.data.charCount as number) ?? 0;
+              const dur = (gs.data.durationSeconds as number) ?? 0;
+              gazeAfterPaste.push(
+                `${dur}s off-screen gaze streak near ${chars}-char paste at ${minuteMark(p.timestamp)}`
+              );
+              break;
+            }
+          }
+        }
+        if (gazeAfterPaste.length > 0) {
+          lines.push("");
+          lines.push(`Gaze-paste correlations: ${gazeAfterPaste.length}`);
+          for (const c of gazeAfterPaste) {
+            lines.push(`  *** ${c}`);
+          }
+        }
+      }
+    }
+  }
+
   // Cross-reference with snapshots for sudden code jumps
   const snaps = room.snapshots;
   if (snaps.length >= 2) {

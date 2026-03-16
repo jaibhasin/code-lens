@@ -23,7 +23,12 @@
 
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import type { Room } from "@/lib/store";
+
+const GazeHeatmap = dynamic(() => import("@/components/GazeHeatmap"), {
+  ssr: false,
+});
 
 interface Debrief {
   approach_analysis?: string;
@@ -345,6 +350,19 @@ export default function DebriefPage() {
           ) : (
             <p className="mt-3 text-sm text-emerald-400">No integrity concerns detected.</p>
           )}
+        </div>
+      )}
+
+      {/* ── Gaze Analysis — interviewer only ──────────────────────────── */}
+      {viewRole === "interviewer" && (safeRoom.gazeSamples?.length > 0 || safeRoom.gazeCalibrated === false) && (
+        <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "450ms" }}>
+          <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-4">
+            Gaze Analysis
+          </h2>
+          <GazeHeatmap
+            samples={safeRoom.gazeSamples ?? []}
+            calibrated={safeRoom.gazeCalibrated ?? false}
+          />
         </div>
       )}
 
