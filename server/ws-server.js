@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { WebSocketServer } = require("ws");
 
 const PORT = process.env.WS_PORT || 1234;
@@ -36,7 +37,7 @@ wss.on("connection", (ws) => {
           if (s !== ws && s.readyState === 1) s.send(raw.toString());
         });
       }
-    } catch (_) {
+    } catch {
       if (roomId) {
         const room = getRoom(roomId);
         room.forEach((s) => {

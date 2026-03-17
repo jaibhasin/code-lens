@@ -181,12 +181,19 @@ export async function POST(req: NextRequest) {
       .filter((e) => e.input.trim() && e.output.trim())
       .map((e) => ({ input: e.input, expectedOutput: e.output }));
 
+    const difficulty = q.difficulty as "Easy" | "Medium" | "Hard" | undefined;
+
     const problem: Problem = {
       title: q.title,
       description: q.content ? htmlToPlainText(q.content) : "",
       examples,
       hiddenTests,
+      ...(difficulty ? { difficulty } : {}),
     };
+
+    // #region agent log
+    console.log(`[DEBUG-74ad34] import/leetcode: title="${problem.title}" hasContent=${!!q.content} contentLen=${q.content?.length} descLen=${problem.description.length} descFirst100="${problem.description.substring(0,100)}"`);
+    // #endregion
 
     return NextResponse.json(problem);
   } catch (err) {

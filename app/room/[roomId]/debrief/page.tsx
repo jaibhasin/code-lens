@@ -136,11 +136,18 @@ export default function DebriefPage() {
   useEffect(() => {
     const startTime = Date.now();
 
+    let failCount = 0;
+
     const load = async () => {
       const r = await fetch(`/api/rooms/${roomId}`)
         .then((res) => (res.ok ? res.json() : null))
         .catch(() => null);
-      if (!r) return;
+      if (!r) {
+        failCount++;
+        if (failCount >= 5) clearInterval(id);
+        return;
+      }
+      failCount = 0;
       setRoom(r);
       const debrief = r.debrief as Debrief | null;
       if (debrief && debrief.status !== "generating") {
@@ -354,7 +361,7 @@ export default function DebriefPage() {
       )}
 
       {/* ── Gaze Analysis — interviewer only ──────────────────────────── */}
-      {viewRole === "interviewer" && (safeRoom.gazeSamples?.length > 0 || safeRoom.gazeCalibrated === false) && (
+      {viewRole === "interviewer" && (safeRoom.gazeSamples?.length > 0 || safeRoom.gazeCalibrated !== undefined) && (
         <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "450ms" }}>
           <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-4">
             Gaze Analysis

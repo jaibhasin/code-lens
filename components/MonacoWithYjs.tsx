@@ -284,8 +284,10 @@ export const MonacoWithYjs = forwardRef<MonacoWithYjsHandle, MonacoWithYjsProps>
     };
     ytext.observe(contentObserver);
 
-    setReady(true);
+    // Deferred to avoid synchronous setState inside effect body (React 19 lint)
+    const readyTimer = setTimeout(() => setReady(true), 0);
     return () => {
+      clearTimeout(readyTimer);
       ytext.unobserve(contentObserver);
       provider.destroy();
       doc.destroy();
@@ -434,7 +436,7 @@ export const MonacoWithYjs = forwardRef<MonacoWithYjsHandle, MonacoWithYjsProps>
     }
   };
 
-  if (!ready || !docRef.current) {
+  if (!ready) {
     return (
       <div className="flex items-center justify-center h-64 bg-zinc-900 rounded border border-zinc-700 text-zinc-400">
         Connecting…

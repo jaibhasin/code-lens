@@ -322,7 +322,10 @@ function buildIntegritySignals(room: Room): string {
   if (!room.gazeCalibrated) {
     lines.push("");
     lines.push("Gaze tracking: unavailable — candidate did not complete calibration.");
-  } else if (room.gazeSamples && room.gazeSamples.length > 0) {
+  } else if (!room.gazeSamples || room.gazeSamples.length === 0) {
+    lines.push("");
+    lines.push("Gaze tracking: calibration completed but no gaze data was recorded (possible tracking failure or very short session).");
+  } else if (room.gazeSamples.length > 0) {
     const validSamples = room.gazeSamples.filter((s) => s.zone !== "unknown");
     const offScreen = validSamples.filter((s) => s.zone !== "on_screen");
     const totalValid = validSamples.length;
@@ -373,6 +376,17 @@ function buildIntegritySignals(room: Room): string {
           }
         }
       }
+    }
+  }
+
+  // Candidate self-termination
+  const endAttempts = events.filter((e) => e.event === "end_attempt");
+  if (endAttempts.length > 0) {
+    lines.push("");
+    lines.push("Candidate self-terminated the session (clicked 'End attempt').");
+    for (const ea of endAttempts) {
+      const codeLen = (ea.data.codeLength as number) ?? 0;
+      lines.push(`  - At ${minuteMark(ea.timestamp)}, code was ${codeLen} chars when they chose to stop.`);
     }
   }
 
@@ -463,7 +477,7 @@ Return a JSON object with EXACTLY these keys. All string fields may use plain te
 
 **Qualitative fields (strings):**
 - approach_analysis       — Initial strategy, edge case awareness, brute-force vs. optimal choice, and whether they planned before coding
-- problem_solving_behavior — Where they got stuck, how they iterated, number of runs before a passing submit, reaction to failures, language switches
+- problem_solving_behavior — Where they got stuck, how they iterated, number of runs before a passing submit, reaction to failures, language switches. If the candidate chose to end their attempt early (look for an "end_attempt" timeline event), note this and consider what progress they had made up to that point — self-awareness about when to stop is not inherently negative.
 - code_quality            — Variable naming, readability, structure, edge case coverage, time/space complexity awareness
 - time_breakdown          — Estimated time distribution: reading/planning vs. coding vs. debugging (infer from keystroke and run events)
 - hire_reasoning          — One clear paragraph justifying the hire_signal verdict with specific evidence from this session

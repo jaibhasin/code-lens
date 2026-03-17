@@ -120,7 +120,8 @@ export interface Room {
   gazeSamples: GazeSample[];
 }
 
-const rooms = new Map<string, Room>();
+const globalForRooms = globalThis as unknown as { __codelens_rooms?: Map<string, Room> };
+const rooms = globalForRooms.__codelens_rooms ??= new Map<string, Room>();
 
 function defaultProblem(): Problem {
   return {

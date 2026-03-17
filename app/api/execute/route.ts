@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { code, language, testCases, roomId, isSubmit } = body;
+  const { code, language, testCases, roomId } = body;
   if (!code || !language || !Array.isArray(testCases)) {
     return NextResponse.json(
       { error: "Missing code, language, or testCases" },

@@ -25,8 +25,12 @@ export default function Home() {
     setLoading(true);
     try {
       const res = await fetch("/api/rooms", { method: "POST" });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const { roomId } = await res.json();
-      if (roomId) router.push(`/room/${roomId}/setup`);
+      if (!roomId) throw new Error("No roomId returned");
+      router.push(`/room/${roomId}/setup`);
+    } catch {
+      alert("Failed to create room. Please try again.");
     } finally {
       setLoading(false);
     }

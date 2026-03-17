@@ -59,6 +59,7 @@ export default function RoomPage() {
    */
   const [peers, setPeers] = useState<AwarenessPeer[]>([]);
   const [copied, setCopied] = useState(false);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [candidateName, setCandidateName] = useState("");
   const [showNameGate, setShowNameGate] = useState(role === "candidate");
   const [showCalibration, setShowCalibration] = useState(false);
@@ -297,6 +298,15 @@ export default function RoomPage() {
       return;
     }
     router.push(`/room/${roomId}/debrief`);
+  };
+
+  const endAttempt = async () => {
+    pushTimelineEvent("end_attempt", {
+      reason: "candidate_self_terminated",
+      codeLength: (editorRef.current?.getCode() ?? "").length,
+    });
+    setShowEndConfirm(false);
+    await endSession();
   };
 
   const LANG_TEMPLATES: Record<Language, string> = {
@@ -590,41 +600,50 @@ func main() {
             </button>
           )}
 
-          <select
-            value={room.language}
-            onChange={(e) => setLanguage(e.target.value as Language)}
-            className="rounded glass-input px-2 py-1 text-sm text-zinc-100"
-          >
-            <option value="c">C</option>
-            <option value="cpp">C++</option>
-            <option value="java">Java</option>
-            <option value="javascript">JavaScript</option>
-            <option value="typescript">TypeScript</option>
-            <option value="python">Python</option>
-            <option value="go">Go</option>
-          </select>
+          {role === "candidate" ? (
+            <select
+              value={room.language}
+              onChange={(e) => setLanguage(e.target.value as Language)}
+              className="rounded glass-input px-2 py-1 text-sm text-zinc-100"
+            >
+              <option value="c">C</option>
+              <option value="cpp">C++</option>
+              <option value="java">Java</option>
+              <option value="javascript">JavaScript</option>
+              <option value="typescript">TypeScript</option>
+              <option value="python">Python</option>
+              <option value="go">Go</option>
+            </select>
+          ) : (
+            <span className="rounded bg-white/[0.06] border border-white/[0.1] px-2 py-1 text-sm text-zinc-400 capitalize">
+              {room.language === "cpp" ? "C++" : room.language}
+            </span>
+          )}
 
-          {/* Run button — emerald glow */}
-          <button
-            onClick={() => runTests(false)}
-            disabled={running}
-            className="rounded bg-emerald-600 px-3 py-1 text-white text-sm font-medium
-                       hover:bg-emerald-500 disabled:opacity-50 transition-all duration-300
-                       shadow-[0_0_15px_rgba(16,185,129,0.25)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
-          >
-            {running ? "Running…" : "Run"}
-          </button>
+          {/* Run & Submit — candidate only */}
+          {role === "candidate" && (
+            <>
+              <button
+                onClick={() => runTests(false)}
+                disabled={running}
+                className="rounded bg-emerald-600 px-3 py-1 text-white text-sm font-medium
+                           hover:bg-emerald-500 disabled:opacity-50 transition-all duration-300
+                           shadow-[0_0_15px_rgba(16,185,129,0.25)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+              >
+                {running ? "Running…" : "Run"}
+              </button>
 
-          {/* Submit button — blue glow */}
-          <button
-            onClick={() => runTests(true)}
-            disabled={running}
-            className="rounded bg-blue-600 px-3 py-1 text-white text-sm font-medium
-                       hover:bg-blue-500 disabled:opacity-50 transition-all duration-300
-                       shadow-[0_0_15px_rgba(59,130,246,0.25)] hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]"
-          >
-            Submit
-          </button>
+              <button
+                onClick={() => runTests(true)}
+                disabled={running}
+                className="rounded bg-blue-600 px-3 py-1 text-white text-sm font-medium
+                           hover:bg-blue-500 disabled:opacity-50 transition-all duration-300
+                           shadow-[0_0_15px_rgba(59,130,246,0.25)] hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+              >
+                Submit
+              </button>
+            </>
+          )}
 
           {/* Presence indicator — neon glow dots when active */}
           {role === "candidate" && (() => {
@@ -671,7 +690,7 @@ func main() {
             </button>
           )}
 
-          {/* End session — red glow */}
+          {/* End session — red glow (interviewer) */}
           {room.status !== "waiting" && room.status !== "ended" && role === "interviewer" && (
             <button
               onClick={endSession}
@@ -680,6 +699,17 @@ func main() {
                          shadow-[0_0_15px_rgba(239,68,68,0.25)] hover:shadow-[0_0_20px_rgba(239,68,68,0.4)]"
             >
               End session
+            </button>
+          )}
+
+          {/* End attempt — muted outline (candidate) */}
+          {room.status === "active" && role === "candidate" && (
+            <button
+              onClick={() => setShowEndConfirm(true)}
+              className="rounded border border-zinc-600 px-3 py-1 text-zinc-400 text-sm
+                         hover:border-red-500/60 hover:text-red-400 transition-all duration-300"
+            >
+              End attempt
             </button>
           )}
         </div>
@@ -808,6 +838,39 @@ func main() {
           </div>
         </div>
       </div>
+
+      {/* ── "End attempt" confirmation modal ──────────────────────────── */}
+      {showEndConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
+          <div className="relative w-full max-w-md rounded-2xl glass p-8 flex flex-col items-center gap-5 animate-fade-in-up">
+            <h2 className="text-xl font-bold text-white tracking-tight">Ready to finish?</h2>
+            <p className="text-center text-zinc-300 text-sm leading-relaxed">
+              It&apos;s completely okay to end early — knowing when to step back is a strength.
+              Your progress so far will be saved and reviewed.
+            </p>
+            <p className="text-center text-zinc-500 text-xs">
+              This cannot be undone. The session will end for both you and the interviewer.
+            </p>
+            <div className="flex gap-3 w-full mt-1">
+              <button
+                onClick={() => setShowEndConfirm(false)}
+                className="flex-1 rounded-lg border border-zinc-600 py-2.5 text-zinc-300 text-sm font-medium
+                           hover:border-zinc-500 hover:text-zinc-200 transition-colors"
+              >
+                Keep going
+              </button>
+              <button
+                onClick={endAttempt}
+                className="flex-1 rounded-lg bg-red-600 py-2.5 text-white text-sm font-medium
+                           hover:bg-red-500 transition-all duration-300
+                           shadow-[0_0_15px_rgba(239,68,68,0.25)] hover:shadow-[0_0_20px_rgba(239,68,68,0.4)]"
+              >
+                End attempt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Fullscreen exit warning — glass card with red glow ──────────── */}
       {/* Pulsing warning icon signals "something is wrong".

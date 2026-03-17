@@ -49,8 +49,13 @@ const STATUS_IDS = {
   accepted: 3,
   wrongAnswer: 4,
   compilationError: 6,
-  runtimeError: 11,
   timeLimitExceeded: 5,
+  runtimeErrorSIGSEGV: 7,
+  runtimeErrorSIGXFSZ: 8,
+  runtimeErrorSIGFPE: 9,
+  runtimeErrorSIGABRT: 10,
+  runtimeErrorNZEC: 11,
+  runtimeErrorOther: 12,
 } as const;
 
 export function getLanguageId(lang: Language): number {
@@ -95,7 +100,7 @@ export function mapJudge0StatusToResult(
 ): "passed" | "failed" | "TLE" | "runtime_error" | "compilation_error" {
   if (statusId === STATUS_IDS.accepted) return "passed";
   if (statusId === STATUS_IDS.compilationError) return "compilation_error";
-  if (statusId === STATUS_IDS.runtimeError) return "runtime_error";
+  if (statusId >= STATUS_IDS.runtimeErrorSIGSEGV && statusId <= STATUS_IDS.runtimeErrorOther) return "runtime_error";
   if (statusId === STATUS_IDS.timeLimitExceeded) return "TLE";
   return "failed";
 }

@@ -54,13 +54,31 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
   useEffect(() => {
     let cancelled = false;
 
+    function loadScript(src: string): Promise<void> {
+      return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+          resolve();
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Failed to load webgazer script"));
+        document.head.appendChild(script);
+      });
+    }
+
     async function initWebGazer() {
       try {
-        const mod = await import("webgazer");
-        const wg = mod.default;
+        await loadScript("/webgazer/webgazer.js");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const wg = (window as any).webgazer;
+        if (!wg) throw new Error("WebGazer failed to initialize");
         if (cancelled) return;
         webgazerRef.current = wg;
 
+        wg.params.faceMeshSolutionPath = "/webgazer/mediapipe/face_mesh";
         wg.params.showVideoPreview = false;
         wg.params.showFaceOverlay = false;
         wg.params.showFaceFeedbackBox = false;
@@ -75,8 +93,11 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
           videoRef.current = videoEl;
         }
 
+        let attempts = 0;
+        const MAX_ATTEMPTS = 5;
         const checkFace = () => {
           if (cancelled) return;
+          attempts++;
           const tracker = wg.getTracker?.();
           if (tracker?.getPositions) {
             const pos = tracker.getPositions();
@@ -85,7 +106,11 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
               return;
             }
           }
-          setFaceDetected(true);
+          if (attempts < MAX_ATTEMPTS) {
+            faceCheckTimer.current = setTimeout(checkFace, 1500);
+          } else {
+            setFaceDetected(true);
+          }
         };
         faceCheckTimer.current = setTimeout(checkFace, 2000);
 
@@ -102,12 +127,22 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
     return () => {
       cancelled = true;
       if (faceCheckTimer.current) clearTimeout(faceCheckTimer.current);
+      try {
+        webgazerRef.current?.pause();
+      } catch {
+        // webgazer cleanup may fail if not fully initialized
+      }
     };
   }, []);
 
   const skipCalibration = useCallback(() => {
     emitTimelineEvent("gaze_calibration_skipped", { reason: "user_skip" });
-    webgazerRef.current?.end().catch(() => {});
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    try {
+      webgazerRef.current?.end();
+    } catch {
+      // webgazer cleanup may fail if not fully initialized
+    }
     onComplete(false);
   }, [emitTimelineEvent, onComplete]);
 

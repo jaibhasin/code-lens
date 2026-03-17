@@ -60,8 +60,9 @@ export function useGazeTracker(
     let wg: any = null;
 
     async function start() {
-      const mod = await import("webgazer");
-      wg = mod.default;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      wg = (window as any).webgazer;
+      if (!wg) return;
 
       wg.resume();
 
@@ -72,16 +73,7 @@ export function useGazeTracker(
 
         try {
           const prediction = await wg.getCurrentPrediction();
-          if (!prediction) {
-            bufferRef.current.push({
-              ts: now,
-              x: 0.5,
-              y: 0.5,
-              zone: "unknown",
-              conf: 0,
-            });
-            return;
-          }
+          if (!prediction) return;
 
           const xNorm = prediction.x / window.innerWidth;
           const yNorm = prediction.y / window.innerHeight;
@@ -98,7 +90,7 @@ export function useGazeTracker(
           bufferRef.current.push(sample);
 
           if (zone !== "on_screen" && zone !== "unknown") {
-            if (offScreenStartRef.current === null) {
+            if (offScreenStartRef.current === null || offScreenDirRef.current !== zone) {
               offScreenStartRef.current = now;
               offScreenDirRef.current = zone;
             }

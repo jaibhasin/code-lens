@@ -1,7 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoom } from "@/lib/store";
-import type { Problem, TimelineEvent, CodeSnapshot, GazeSample } from "@/lib/store";
+import type { Problem, TimelineEvent, CodeSnapshot, GazeSample, GazeZone } from "@/lib/store";
 import { generateDebrief } from "@/lib/ai-debrief";
+
+const MAX_GAZE_SAMPLES = 15_000;
+const VALID_GAZE_ZONES = new Set<GazeZone>([
+  "on_screen", "off_left", "off_right", "off_top", "off_bottom", "unknown",
+]);
+
+function isValidGazeSample(s: unknown): s is GazeSample {
+  if (typeof s !== "object" || s === null) return false;
+  const obj = s as Record<string, unknown>;
+  return (
+    typeof obj.ts === "number" &&
+    typeof obj.x === "number" &&
+    typeof obj.y === "number" &&
+    typeof obj.conf === "number" &&
+    typeof obj.zone === "string" &&
+    VALID_GAZE_ZONES.has(obj.zone as GazeZone)
+  );
+}
+
+function appendGazeSamples(room: { gazeSamples: GazeSample[] }, raw: unknown[]) {
+  const budget = Math.max(0, MAX_GAZE_SAMPLES - room.gazeSamples.length);
+  if (budget === 0) return;
+  const valid = raw.filter(isValidGazeSample).slice(0, budget);
+  if (valid.length > 0) room.gazeSamples.push(...valid);
+}
 
 export async function GET(
   _req: NextRequest,
@@ -11,6 +36,27 @@ export async function GET(
   const room = getRoom(roomId);
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
   return NextResponse.json(room);
+}
+
+/**
+ * POST handler — used exclusively by navigator.sendBeacon() which can only
+ * send POST requests. Accepts the same gazeSamples payload as PATCH.
+ */
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ roomId: string }> }
+) {
+  const { roomId } = await params;
+  const room = getRoom(roomId);
+  if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+
+  const body = await req.json();
+
+  if (body.gazeSamples && Array.isArray(body.gazeSamples)) {
+    appendGazeSamples(room, body.gazeSamples);
+  }
+
+  return NextResponse.json({ ok: true });
 }
 
 export async function PATCH(
@@ -77,11 +123,18 @@ export async function PATCH(
     room.candidateName = body.candidateName;
   }
   if (body.gazeSamples && Array.isArray(body.gazeSamples)) {
-    room.gazeSamples.push(...(body.gazeSamples as GazeSample[]));
+    appendGazeSamples(room, body.gazeSamples);
   }
   if (body.gazeCalibrated !== undefined) {
     room.gazeCalibrated = body.gazeCalibrated;
   }
 
+  const hasGazeBatch = body.gazeSamples && Array.isArray(body.gazeSamples);
+  if (hasGazeBatch) {
+    return NextResponse.json({
+      ok: true,
+      gazeSampleCount: room.gazeSamples.length,
+    });
+  }
   return NextResponse.json(room);
 }

@@ -278,6 +278,85 @@ const SLUGS: string[] = [
   "missing-number",
   "sum-of-two-integers",
   "reverse-integer",
+
+  // Super Easy (warm-up / junior-level)
+  "add-digits",
+  "first-unique-character-in-a-string",
+  "minimum-number-game",
+  "check-if-the-sentence-is-pangram",
+  "maximum-number-of-words-found-in-sentences",
+  "count-the-digits-that-divide-a-number",
+  "find-first-palindromic-string-in-the-array",
+  "number-of-employees-who-met-the-target",
+  "difference-between-element-sum-and-digit-sum-of-an-array",
+  "sum-multiples",
+  "xor-operation-in-an-array",
+  "divisible-and-non-divisible-sums-difference",
+  "to-lower-case",
+  "number-of-changing-keys",
+  "type-of-triangle",
+  "find-words-containing-character",
+  "find-the-maximum-achievable-number",
+  "subtract-the-product-and-sum-of-digits-of-an-integer",
+  "richest-customer-wealth",
+  "three-consecutive-odds",
+  "sign-of-the-product-of-an-array",
+  "baseball-game",
+  "robot-return-to-origin",
+  "find-if-digit-game-can-be-won",
+
+  // Classic Easy — Strings & Arrays
+  "valid-anagram",
+  "reverse-string",
+  "fizz-buzz",
+  "palindrome-number",
+  "roman-to-integer",
+  "longest-common-prefix",
+  "remove-duplicates-from-sorted-array",
+  "remove-element",
+  "find-the-index-of-the-first-occurrence-in-a-string",
+  "length-of-last-word",
+  "merge-sorted-array",
+  "majority-element",
+  "ransom-note",
+  "is-subsequence",
+  "isomorphic-strings",
+  "word-pattern",
+  "contains-duplicate-ii",
+  "intersection-of-two-arrays-ii",
+
+  // Classic Easy — Linked Lists
+  "palindrome-linked-list",
+  "middle-of-the-linked-list",
+  "remove-duplicates-from-sorted-list",
+  "intersection-of-two-linked-lists",
+
+  // Classic Easy — Trees
+  "symmetric-tree",
+  "minimum-depth-of-binary-tree",
+  "path-sum",
+  "binary-tree-inorder-traversal",
+  "binary-tree-preorder-traversal",
+  "binary-tree-postorder-traversal",
+
+  // Classic Easy — Stacks & Queues
+  "implement-queue-using-stacks",
+  "implement-stack-using-queues",
+
+  // Classic Easy — Math & Binary
+  "add-binary",
+  "sqrtx",
+  "power-of-two",
+  "power-of-three",
+  "ugly-number",
+  "valid-perfect-square",
+  "guess-number-higher-or-lower",
+  "excel-sheet-column-number",
+  "pascals-triangle",
+
+  // Classic Easy — Design & Hash
+  "design-hashmap",
+  "design-hashset",
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

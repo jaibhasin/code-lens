@@ -126,35 +126,56 @@ export default function AiPickerPage() {
 
       const fullProblem = importData as Problem;
 
-      // 3b. Ask Claude to rewrite the title + description
-      const rewriteRes = await fetch("/api/ai/rewrite-problem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // #region agent log
+      console.log(`[DEBUG-74ad34] importData:`, {keys:Object.keys(importData), title:importData.title, descLen:importData.description?.length});
+      // #endregion
+
+      let finalProblem: Problem;
+
+      if (!fullProblem.description) {
+        // Premium/restricted problem — no description available from LeetCode.
+        // Skip the rewrite step; use the imported problem as-is.
+        finalProblem = {
+          ...fullProblem,
+          difficulty: (fullProblem.difficulty ?? pick.difficulty) as Problem["difficulty"],
+        };
+      } else {
+        // 3b. Ask Claude to rewrite the title + description
+        const rewriteBody = {
           slug: pick.slug,
           originalTitle: fullProblem.title,
           originalDescription: fullProblem.description,
           difficulty: fullProblem.difficulty ?? pick.difficulty,
           examples: fullProblem.examples,
           hiddenTests: fullProblem.hiddenTests,
-        }),
-      });
-      const rewriteData = await rewriteRes.json();
+        };
 
-      if (!rewriteRes.ok) {
-        setError(rewriteData.error ?? "Problem rewrite failed.");
-        setUiState("cards");
-        return;
+        // #region agent log
+        console.log(`[DEBUG-74ad34] rewriteBody:`, {hasTitle:!!rewriteBody.originalTitle, hasDesc:!!rewriteBody.originalDescription, descLen:rewriteBody.originalDescription?.length});
+        // #endregion
+
+        const rewriteRes = await fetch("/api/ai/rewrite-problem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(rewriteBody),
+        });
+        const rewriteData = await rewriteRes.json();
+
+        if (!rewriteRes.ok) {
+          setError(rewriteData.error ?? "Problem rewrite failed.");
+          setUiState("cards");
+          return;
+        }
+
+        finalProblem = rewriteData.problem as Problem;
       }
 
-      const rewrittenProblem: Problem = rewriteData.problem;
-
-      // 3c. Save the rewritten problem to the room
+      // 3c. Save the problem to the room
       await fetch(`/api/rooms/${roomId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          problem: rewrittenProblem,
+          problem: finalProblem,
           interviewerCompany: company.trim(),
         }),
       });
@@ -356,9 +377,9 @@ export default function AiPickerPage() {
             <div className="absolute inset-0 w-10 h-10 rounded-full bg-violet-500/20 animate-glow-pulse blur-xl" />
             <div className="w-10 h-10 rounded-full border-4 border-violet-500/30 border-t-violet-500 animate-spin shadow-[0_0_20px_rgba(139,92,246,0.3)]" />
           </div>
-          <p className="text-zinc-300 text-sm">Rewriting problem for your interview…</p>
+          <p className="text-zinc-300 text-sm">Preparing your interview problem…</p>
           <p className="text-zinc-500 text-xs">
-            Claude is crafting a new scenario — examples and tests stay identical
+            Generating a unique scenario — examples and tests stay identical
           </p>
         </div>
       )}

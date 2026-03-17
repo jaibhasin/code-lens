@@ -33,7 +33,7 @@ export default function RootLayout({
       {/* bg-[#09090b] and text-zinc-100 are reinforced here for SSR —
        * globals.css @layer base also sets them, but className ensures
        * no flash of unstyled content before CSS loads. */}
-      <body className={`${geist.className} antialiased bg-[#09090b] text-zinc-100`}>
+      <body suppressHydrationWarning className={`${geist.className} antialiased bg-[#09090b] text-zinc-100`}>
         {children}
       </body>
     </html>

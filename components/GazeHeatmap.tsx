@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { GazeSample, GazeZone } from "@/lib/store";
 
 interface GazeHeatmapProps {
@@ -87,9 +87,10 @@ function computeZoneBreakdown(samples: GazeSample[]) {
 export default function GazeHeatmap({ samples, calibrated }: GazeHeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const sampleCount = samples.length;
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || samples.length === 0) return;
+    if (!canvas || sampleCount === 0) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -140,7 +141,10 @@ export default function GazeHeatmap({ samples, calibrated }: GazeHeatmapProps) {
     ctx.font = "11px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.fillText("Screen", INNER_X + INNER_W / 2, INNER_Y + INNER_H + 16);
-  }, [samples]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sampleCount]);
+
+  const breakdown = useMemo(() => computeZoneBreakdown(samples), [sampleCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!calibrated) {
     return (
@@ -156,8 +160,6 @@ export default function GazeHeatmap({ samples, calibrated }: GazeHeatmapProps) {
   if (samples.length === 0) {
     return <p className="text-sm text-zinc-500">No gaze data recorded.</p>;
   }
-
-  const breakdown = computeZoneBreakdown(samples);
 
   return (
     <div className="flex flex-col gap-3">

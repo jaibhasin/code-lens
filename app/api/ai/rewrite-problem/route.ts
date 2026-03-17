@@ -72,7 +72,14 @@ export async function POST(req: NextRequest) {
 
   const { originalTitle, originalDescription, difficulty, examples = [], hiddenTests = [] } = body;
 
+  // #region agent log
+  console.log(`[DEBUG-74ad34] rewrite-problem: hasTitle=${!!originalTitle} hasDesc=${!!originalDescription} titleVal="${originalTitle}" descType=${typeof originalDescription} descLen=${typeof originalDescription==='string'?originalDescription.length:'N/A'}`);
+  // #endregion
+
   if (!originalTitle || !originalDescription) {
+    // #region agent log
+    console.log(`[DEBUG-74ad34] rewrite-problem FAILING: !title=${!originalTitle} !desc=${!originalDescription} desc="${originalDescription}"`);
+    // #endregion
     return NextResponse.json({ error: "originalTitle and originalDescription are required" }, { status: 400 });
   }
 
