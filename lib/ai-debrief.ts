@@ -331,27 +331,42 @@ function buildIntegritySignals(room: Room): string {
     lines.push("Gaze tracking: calibration completed but no gaze data was recorded (possible tracking failure or very short session).");
   } else if (room.gazeSamples.length > 0) {
     const validSamples = room.gazeSamples.filter((s) => s.zone !== "unknown");
-    const offScreen = validSamples.filter((s) => s.zone !== "on_screen");
+    const offScreen = validSamples.filter((s) =>
+      typeof s.insideScreen === "boolean" ? !s.insideScreen : s.zone !== "on_screen"
+    );
     const totalValid = validSamples.length;
+    const weightedTotal = validSamples.reduce((sum, sample) => sum + (sample.conf ?? 1), 0);
+    const weightedOffScreen = offScreen.reduce((sum, sample) => sum + (sample.conf ?? 1), 0);
 
-    if (totalValid > 0) {
-      const offScreenRatio = offScreen.length / totalValid;
+    if (totalValid > 0 && weightedTotal > 0) {
+      const offScreenRatio = weightedOffScreen / weightedTotal;
       const offPct = Math.round(offScreenRatio * 100);
+      const lowQualityPlane = room.gazePlaneModel?.quality.label === "low";
       lines.push("");
       lines.push(`Gaze tracking: ${totalValid} valid samples, ${100 - offPct}% on-screen, ${offPct}% off-screen`);
+      if (room.gazePlaneModel) {
+        lines.push(
+          `  - Front-plane heatmap fit: ${room.gazePlaneModel.quality.label} (${room.gazePlaneModel.quality.validationErrorPx}px validation error, ${room.gazePlaneModel.quality.observedPointCount} observed validation points, source=${room.gazePlaneModel.quality.source})`
+        );
+        if (lowQualityPlane) {
+          lines.push("  - Heatmap geometry is approximate; treat gaze percentages as weak evidence.");
+        }
+      }
 
       const dirCounts: Record<string, number> = {};
       for (const s of offScreen) {
-        dirCounts[s.zone] = (dirCounts[s.zone] ?? 0) + 1;
+        dirCounts[s.zone] = (dirCounts[s.zone] ?? 0) + (s.conf ?? 1);
       }
       for (const [dir, count] of Object.entries(dirCounts)) {
-        const pct = Math.round((count / totalValid) * 100);
+        const pct = Math.round((count / weightedTotal) * 100);
         const label = dir.replace("off_", "");
-        lines.push(`  - Off-${label}: ${pct}%${pct > 15 ? " (elevated)" : ""}`);
+        lines.push(`  - Off-${label}: ${pct}%${!lowQualityPlane && pct > 15 ? " (elevated)" : ""}`);
       }
 
-      if (offScreenRatio > 0.20) {
+      if (!lowQualityPlane && offScreenRatio > 0.20) {
         lines.push(`  *** ${offPct}% off-screen gaze — elevated concern`);
+      } else if (lowQualityPlane && offScreenRatio > 0.20) {
+        lines.push(`  - ${offPct}% off-screen gaze observed, but tracking quality is low so this is weak evidence.`);
       }
 
       // Cross-correlate gaze off-screen streaks with paste events

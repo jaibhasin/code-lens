@@ -2,7 +2,7 @@
 
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Room, Language } from "@/lib/store";
+import type { Room, Language, GazePlaneModel } from "@/lib/store";
 import type { TestResult } from "@/lib/store";
 import dynamic from "next/dynamic";
 import type { MonacoWithYjsHandle, AwarenessPeer } from "@/components/MonacoWithYjs";
@@ -67,13 +67,22 @@ export default function RoomPage() {
   const [showNameGate, setShowNameGate] = useState(role === "candidate");
   const [showCalibration, setShowCalibration] = useState(false);
   const [gazeCalibrated, setGazeCalibrated] = useState(false);
+  const [localGazePlaneModel, setLocalGazePlaneModel] = useState<GazePlaneModel | null>(null);
   const editorRef = useRef<MonacoWithYjsHandle>(null);
   const router = useRouter();
 
   useEffect(() => {
     fetch(`/api/rooms/${roomId}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Room not found"))))
-      .then(setRoom)
+      .then((nextRoom: Room) => {
+        setRoom(nextRoom);
+        if (nextRoom.gazeCalibrated) {
+          setGazeCalibrated(true);
+        }
+        if (nextRoom.gazePlaneModel) {
+          setLocalGazePlaneModel(nextRoom.gazePlaneModel);
+        }
+      })
       .catch(() => setError("Room not found"));
   }, [roomId]);
 
@@ -255,7 +264,8 @@ export default function RoomPage() {
   useGazeTracker(
     roomId,
     gazeCalibrated && role === "candidate" && room?.status === "active",
-    pushTimelineEvent
+    pushTimelineEvent,
+    localGazePlaneModel ?? room?.gazePlaneModel ?? null
   );
 
   // Periodic code snapshots (every 60s)
@@ -578,8 +588,11 @@ func main() {
     return (
       <GazeCalibration
         roomId={roomId}
-        onComplete={(calibrated) => {
+        onComplete={({ calibrated, planeModel }) => {
           setGazeCalibrated(calibrated);
+          if (planeModel) {
+            setLocalGazePlaneModel(planeModel);
+          }
           setShowCalibration(false);
         }}
       />

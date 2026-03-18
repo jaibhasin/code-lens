@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { buildFrontPlaneModel } from "@/lib/gaze-plane";
 
 interface GazeCalibrationProps {
   roomId: string;
-  onComplete: (calibrated: boolean) => void;
+  onComplete: (result: { calibrated: boolean; planeModel: ReturnType<typeof buildFrontPlaneModel> | null }) => void;
 }
 
 /* Calibration dots placed at ~2% from each edge so the corner points
@@ -19,9 +20,14 @@ const CALIBRATION_POINTS: [number, number][] = [
 ];
 
 const VALIDATION_POINTS: [number, number][] = [
-  [30, 30],
-  [70, 70],
+  [25, 25],
+  [75, 25],
+  [25, 75],
+  [75, 75],
 ];
+
+const VALIDATION_SAMPLE_COUNT = 6;
+const VALIDATION_SAMPLE_DELAY_MS = 120;
 
 type Stage = "face_check" | "calibrating" | "validating" | "done";
 
@@ -40,6 +46,7 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
   const webgazerRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const validationErrors = useRef<number[]>([]);
+  const validationObservations = useRef<Array<{ observedXNorm: number; observedYNorm: number } | null>>([]);
   const faceCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -190,7 +197,7 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
     } catch {
       // webgazer cleanup may fail if not fully initialized
     }
-    onComplete(false);
+    onComplete({ calibrated: false, planeModel: null });
   }, [emitTimelineEvent, onComplete]);
 
   const handleDotClick = useCallback(
@@ -214,6 +221,7 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
           setStage("validating");
           setValidationIdx(0);
           validationErrors.current = [];
+          validationObservations.current = new Array(VALIDATION_POINTS.length).fill(null);
         }, 500);
       }
     },
@@ -228,7 +236,26 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
       const wg = webgazerRef.current;
       if (!wg) return;
 
-      const prediction = await wg.getCurrentPrediction();
+      const captureValidationPrediction = async () => {
+        const predictions: { x: number; y: number }[] = [];
+
+        for (let i = 0; i < VALIDATION_SAMPLE_COUNT; i++) {
+          await new Promise((resolve) => setTimeout(resolve, VALIDATION_SAMPLE_DELAY_MS));
+          const nextPrediction = await wg.getCurrentPrediction();
+          if (nextPrediction) {
+            predictions.push({ x: nextPrediction.x, y: nextPrediction.y });
+          }
+        }
+
+        if (predictions.length === 0) return null;
+
+        return {
+          x: predictions.reduce((sum, prediction) => sum + prediction.x, 0) / predictions.length,
+          y: predictions.reduce((sum, prediction) => sum + prediction.y, 0) / predictions.length,
+        };
+      };
+
+      const prediction = await captureValidationPrediction();
       if (prediction) {
         const [xPct, yPct] = VALIDATION_POINTS[validationIdx];
         const expectedX = (xPct / 100) * window.innerWidth;
@@ -237,6 +264,10 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
         const dy = prediction.y - expectedY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         validationErrors.current.push(dist);
+        validationObservations.current[validationIdx] = {
+          observedXNorm: prediction.x / window.innerWidth,
+          observedYNorm: prediction.y / window.innerHeight,
+        };
       }
 
       if (validationIdx < VALIDATION_POINTS.length - 1) {
@@ -252,6 +283,24 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
           // for zone-level (on-screen vs off-screen) classification. The actual
           // accuracy is recorded in the timeline event for the AI to factor in.
           const calibrated = true;
+          const fittedPoints = VALIDATION_POINTS.map(([xPct, yPct], index) => {
+            const observation = validationObservations.current[index];
+            if (!observation) return null;
+            return {
+              xPx: (xPct / 100) * window.innerWidth,
+              yPx: (yPct / 100) * window.innerHeight,
+              expectedXNorm: xPct / 100,
+              expectedYNorm: yPct / 100,
+              observedXNorm: observation.observedXNorm,
+              observedYNorm: observation.observedYNorm,
+            };
+          }).filter((point): point is NonNullable<typeof point> => point !== null);
+          const planeModel = buildFrontPlaneModel({
+            calibrationPoints: fittedPoints,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            validationErrorPx: Math.round(avgError),
+          });
           /* Persist the gazeCalibrated flag to the server with retry logic.
            * A transient network failure here used to silently leave the flag as
            * `false`, which made the debrief page think calibration never happened.
@@ -261,7 +310,10 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
               const res = await fetch(`/api/rooms/${roomId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ gazeCalibrated: calibrated }),
+                body: JSON.stringify({
+                  gazeCalibrated: calibrated,
+                  gazePlaneModel: planeModel,
+                }),
               });
               if (!res.ok && retriesLeft > 0) {
                 await new Promise((r) => setTimeout(r, 1000));
@@ -280,10 +332,11 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
             quality: Math.round(avgError),
             retries: retryCount,
             low_accuracy: avgError >= 150,
+            plane_quality: planeModel.quality.label,
           });
 
           setStage("done");
-          setTimeout(() => onComplete(calibrated), 800);
+          setTimeout(() => onComplete({ calibrated, planeModel }), 800);
         } else {
           setRetryCount((c) => c + 1);
           setCompletedDots([]);

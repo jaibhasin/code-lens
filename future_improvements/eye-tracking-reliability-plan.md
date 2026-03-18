@@ -1,6 +1,6 @@
 # Eye-Tracking Detection Review + Histogram Plan
 
-## Status: planned
+## Status: in-progress
 
 ## Overview
 - Audit the current gaze-cheating logic.
@@ -70,3 +70,29 @@ flowchart TD
 - [ ] Embed histogram image into debrief/report with no-data fallback.
 - [ ] Write detailed technical evaluation (failure modes, reliability, competitor/research comparison).
 - [ ] Update relevant feature documentation with decisions and outcomes.
+
+## Decisions
+- Shift the immediate goal from aggregate histograms to a session-level front-plane heatmap because the user wants a spatial map of where the candidate looked over time.
+- Keep WebGazer as the capture source for now, but stop treating it as a simple viewport bucket system. Project each sample onto a larger front-facing plane with a smaller embedded laptop-screen rectangle.
+- Persist a fitted `gazePlaneModel` from calibration so capture, storage, debrief text, and rendering all share the same geometry.
+- Validate the new mapping with deterministic geometry tests and known-target synthetic checks before asking for real human calibration trials.
+
+## Implemented this session
+- Added a tested front-plane geometry module in `lib/gaze-plane.ts` plus `vitest` coverage in `lib/gaze-plane.test.ts`.
+- Expanded stored gaze samples in `lib/store.ts` to include raw normalized coordinates, projected plane coordinates, `insideScreen`, and clamp state. Added room-level `gazePlaneModel`.
+- Updated `components/GazeCalibration.tsx` to average multiple validation predictions per point and persist a fitted plane model alongside `gazeCalibrated`.
+- Updated `hooks/useGazeTracker.ts` to smooth raw predictions, project them onto the front plane, and store richer per-sample data while preserving directional streak timeline events.
+- Rebuilt `components/GazeHeatmap.tsx` to render a large outer viewing field with a smaller inner laptop-screen rectangle and time-weighted point/density accumulation across the whole plane.
+- Updated `app/room/[roomId]/debrief/page.tsx` and `lib/ai-debrief.ts` so the debrief uses the new plane model consistently.
+- Added a `test` script to `package.json` and verified `npm run test`, targeted ESLint on touched files, and `npm run build`.
+
+## Open questions
+- Whether the current 5-point click calibration should be increased to a denser grid for even better heatmap fidelity.
+- Whether the front-plane scale constants should stay fixed or become user/device-tuned after a few internal benchmark sessions.
+- Whether low-quality calibration sessions should still render the heatmap fully or switch to a more explicit “approximate only” presentation.
+- Whether WebGazer should remain the long-term provider or be replaced with the planned MediaPipe-based path for better gaze stability.
+
+## Rejected approaches
+- Keeping the old on-screen plus four-arrow view. It cannot honestly represent the front-of-user plane the user asked for.
+- Treating off-screen looks as only `off_left/off_right/off_top/off_bottom` buckets. That loses the spatial structure needed for the new visualization.
+- Requiring a large real-world dataset before making any implementation progress. For this iteration, a tested geometry layer plus future small benchmark sessions is a better starting point.

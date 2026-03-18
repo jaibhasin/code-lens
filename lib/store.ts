@@ -63,10 +63,35 @@ export type GazeZone =
   | "off_bottom"
   | "unknown";
 
+export interface GazePlaneRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export interface GazePlaneModel {
+  screenRect: GazePlaneRect;
+  outerRect: GazePlaneRect;
+  screenRectInPlane: GazePlaneRect;
+  quality: {
+    validationErrorPx: number;
+    label: "good" | "low";
+    source: "observed_fit" | "approximate_fallback";
+    observedPointCount: number;
+  };
+}
+
 export interface GazeSample {
   ts: number;
   x: number;
   y: number;
+  rawX: number;
+  rawY: number;
+  planeX: number;
+  planeY: number;
+  insideScreen: boolean;
+  clamped: boolean;
   zone: GazeZone;
   conf: number;
 }
@@ -119,6 +144,7 @@ export interface Room {
   candidateName: string;
   gazeCalibrated: boolean;
   gazeSamples: GazeSample[];
+  gazePlaneModel: GazePlaneModel | null;
   /** Timestamp when the candidate self-terminated their attempt (session stays active). */
   candidateFinishedAt: number | null;
 }
@@ -153,6 +179,7 @@ export function createRoom(roomId: string): Room {
     candidateName: "",
     gazeCalibrated: false,
     gazeSamples: [],
+    gazePlaneModel: null,
     candidateFinishedAt: null,
   };
   rooms.set(roomId, room);

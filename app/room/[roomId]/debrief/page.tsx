@@ -400,6 +400,7 @@ export default function DebriefPage() {
           <GazeHeatmap
             samples={safeRoom.gazeSamples ?? []}
             calibrated={safeRoom.gazeCalibrated || (safeRoom.gazeSamples?.length ?? 0) > 0}
+            planeModel={safeRoom.gazePlaneModel ?? null}
           />
         </div>
       )}
