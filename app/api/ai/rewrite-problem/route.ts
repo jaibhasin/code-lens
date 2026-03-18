@@ -111,11 +111,14 @@ Your task:
    with the new narrative. You may rename variable/parameter labels if needed.
 4. Keep the same difficulty and complexity requirements.
 5. Write clearly for a software engineering audience — professional but accessible.
+6. Format the description in Markdown: use **bold** for section headers like "Constraints:",
+   bullet lists for constraint items, backticks for variable/parameter names and code,
+   and blank lines between paragraphs. Use ^n for superscripts (e.g. 10^4).
 
-Return ONLY valid JSON in exactly this shape (no markdown, no explanation):
+Return ONLY valid JSON in exactly this shape (no markdown fences, no explanation):
 {
   "title": "New title here",
-  "description": "Full rewritten problem description here..."
+  "description": "Full rewritten problem description in Markdown..."
 }`;
 
   // ── 3. Call Claude ─────────────────────────────────────────────────────────

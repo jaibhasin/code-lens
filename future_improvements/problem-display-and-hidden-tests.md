@@ -1,6 +1,27 @@
 # Fix Problem Display & Hidden Test Cases
 
-## Status: planned
+## Status: in-progress
+
+## Decisions
+- Used a hand-rolled regex-based `htmlToMarkdown()` converter rather than pulling in a heavy library like `turndown` — LeetCode HTML is well-structured and predictable
+- Comprehensive HTML entity decoding map covers common entities beyond the original 4 (`&le;`, `&ge;`, `&hellip;`, quotes, arrows, etc.) plus numeric/hex entities
+- `react-markdown` + `remark-gfm` for rendering — safe (no `dangerouslySetInnerHTML`), supports GFM tables/strikethrough
+- Custom component overrides in ReactMarkdown styled for the existing dark glass theme (zinc palette, emerald accents for inline code)
+- AI rewrite prompt updated to produce Markdown output so rewritten problems also render properly
+
+## Implemented this session
+- **Part A complete**: Problem display now renders as formatted Markdown instead of a flat text blob
+- Replaced `htmlToPlainText()` with `htmlToMarkdown()` in `app/api/import/leetcode/route.ts`
+- Added `decodeEntities()` helper with comprehensive entity map
+- Updated Claude rewrite prompt in `app/api/ai/rewrite-problem/route.ts` to output Markdown
+- Replaced plain text div with `<ReactMarkdown>` in `app/room/[roomId]/page.tsx` with themed component overrides
+- Installed `react-markdown` and `remark-gfm` dependencies
+
+## Open questions
+- Part B (hidden test cases from HuggingFace) still pending — separate task
+
+## Rejected approaches
+- None this session
 
 ## Problem
 
@@ -115,10 +136,10 @@ If the slug isn't found in the HuggingFace dataset (newer problems released afte
 ---
 
 ## Files to Modify
-1. `package.json` — add `react-markdown`, `remark-gfm`
-2. `app/api/import/leetcode/route.ts` — `htmlToPlainText()` → `htmlToMarkdown()` + fetch hidden tests from HuggingFace
-3. `app/api/ai/rewrite-problem/route.ts` — update Claude prompt to output markdown
-4. `app/room/[roomId]/page.tsx` — replace plain text render with `<ReactMarkdown>`
+1. ~~`package.json` — add `react-markdown`, `remark-gfm`~~ **DONE**
+2. `app/api/import/leetcode/route.ts` — ~~`htmlToPlainText()` → `htmlToMarkdown()`~~ **DONE** + fetch hidden tests from HuggingFace (Part B)
+3. ~~`app/api/ai/rewrite-problem/route.ts` — update Claude prompt to output markdown~~ **DONE**
+4. ~~`app/room/[roomId]/page.tsx` — replace plain text render with `<ReactMarkdown>`~~ **DONE**
 
 ---
 
@@ -142,8 +163,8 @@ If the slug isn't found in the HuggingFace dataset (newer problems released afte
 ### Rate Limiting
 - The HuggingFace datasets API is free but may have rate limits for high-volume usage. If many interviewers import problems simultaneously, we might need to cache the dataset locally or add retry logic.
 
-### HTML Entity Decoding Gaps
-- The current `htmlToPlainText()` only decodes 4 entities (`&nbsp;`, `&lt;`, `&gt;`, `&amp;`). LeetCode uses many more: `&le;` (≤), `&ge;` (≥), `&hellip;` (…), `&ldquo;`/`&rdquo;` (quotes), `&#39;` (apostrophe), etc. The new `htmlToMarkdown()` needs comprehensive entity decoding.
+### ~~HTML Entity Decoding Gaps~~ RESOLVED
+- Fixed: `htmlToMarkdown()` now includes a comprehensive entity map (`&le;`, `&ge;`, `&hellip;`, quotes, arrows, etc.) plus numeric (`&#NNN;`) and hex (`&#xHH;`) entity decoding.
 
 ### Manual Setup Unaffected
 - Problems added via the manual setup flow (`/room/{id}/setup/manual`) won't benefit from HuggingFace test cases since there's no LeetCode slug to look up. Interviewers using manual setup still need to write their own test cases.

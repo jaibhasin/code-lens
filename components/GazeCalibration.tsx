@@ -7,11 +7,14 @@ interface GazeCalibrationProps {
   onComplete: (calibrated: boolean) => void;
 }
 
+/* Calibration dots placed at ~2% from each edge so the corner points
+ * sit closer to the actual screen corners — improves WebGazer's ridge
+ * regression accuracy at the extremes of the viewport. */
 const CALIBRATION_POINTS: [number, number][] = [
-  [5, 5],
-  [95, 5],
-  [95, 95],
-  [5, 95],
+  [2, 2],
+  [98, 2],
+  [98, 98],
+  [2, 98],
   [50, 50],
 ];
 
@@ -30,6 +33,8 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
   const [validationIdx, setValidationIdx] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Track camera stream in state so the video preview re-renders when ready
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webgazerRef = useRef<any>(null);
@@ -54,10 +59,37 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
   useEffect(() => {
     let cancelled = false;
 
+    // Loads a script tag, handling the case where it already exists
+    // (e.g. React strict-mode double-mount) by polling for the global
+    // instead of resolving immediately — prevents a race where the tag
+    // exists but hasn't finished executing yet.
     function loadScript(src: string): Promise<void> {
       return new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) {
-          resolve();
+        const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null;
+        if (existing) {
+          // Script tag already in DOM — if webgazer global is ready, resolve now
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if ((window as any).webgazer) {
+            resolve();
+            return;
+          }
+          // Script tag exists but hasn't finished executing yet (strict-mode
+          // double-mount race). Wait for it by listening for load/error events
+          // on the existing tag and polling as a fallback.
+          const onLoad = () => { cleanup(); resolve(); };
+          const onError = () => { cleanup(); reject(new Error("Failed to load webgazer script")); };
+          const cleanup = () => {
+            existing.removeEventListener("load", onLoad);
+            existing.removeEventListener("error", onError);
+            clearInterval(poll);
+          };
+          existing.addEventListener("load", onLoad);
+          existing.addEventListener("error", onError);
+          // Fallback poll in case the load event already fired before we attached
+          const poll = setInterval(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ((window as any).webgazer) { cleanup(); resolve(); }
+          }, 100);
           return;
         }
         const script = document.createElement("script");
@@ -114,11 +146,26 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
         };
         faceCheckTimer.current = setTimeout(checkFace, 2000);
 
+        // Grab the live camera stream so the face-check preview can render it.
+        // Setting both ref (for cleanup) and state (to trigger re-render).
         const stream = wg.getVideoStream?.();
-        if (stream) streamRef.current = stream;
+        if (stream) {
+          streamRef.current = stream;
+          setCameraStream(stream);
+        }
       } catch (err) {
         if (cancelled) return;
-        setError((err as Error).message);
+        // Map browser-level camera errors to user-friendly messages
+        const raw = (err as Error).message ?? String(err);
+        const friendly =
+          raw.includes("NotAllowed") || raw.includes("Permission denied")
+            ? "Camera permission was denied. Please allow camera access and reload."
+            : raw.includes("NotFound") || raw.includes("Requested device not found")
+              ? "No camera detected. Please connect a webcam and reload."
+              : raw.includes("NotReadable") || raw.includes("Could not start video source")
+                ? "Camera is in use by another app. Close it and reload."
+                : raw;
+        setError(friendly);
       }
     }
 
@@ -201,21 +248,39 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
             : 999;
 
         if (avgError < 150 || retryCount >= 1) {
-          const calibrated = avgError < 150;
-          fetch(`/api/rooms/${roomId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ gazeCalibrated: calibrated }),
-          }).catch(() => {});
+          // Always accept calibration after the retry — even noisy data is useful
+          // for zone-level (on-screen vs off-screen) classification. The actual
+          // accuracy is recorded in the timeline event for the AI to factor in.
+          const calibrated = true;
+          /* Persist the gazeCalibrated flag to the server with retry logic.
+           * A transient network failure here used to silently leave the flag as
+           * `false`, which made the debrief page think calibration never happened.
+           * We retry up to 2 times with a 1-second delay between attempts. */
+          const patchCalibrated = async (retriesLeft = 2) => {
+            try {
+              const res = await fetch(`/api/rooms/${roomId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ gazeCalibrated: calibrated }),
+              });
+              if (!res.ok && retriesLeft > 0) {
+                await new Promise((r) => setTimeout(r, 1000));
+                return patchCalibrated(retriesLeft - 1);
+              }
+            } catch {
+              if (retriesLeft > 0) {
+                await new Promise((r) => setTimeout(r, 1000));
+                return patchCalibrated(retriesLeft - 1);
+              }
+            }
+          };
+          patchCalibrated();
 
-          if (calibrated) {
-            emitTimelineEvent("gaze_calibration_complete", {
-              quality: Math.round(avgError),
-              retries: retryCount,
-            });
-          } else {
-            emitTimelineEvent("gaze_calibration_skipped", { reason: "poor_accuracy" });
-          }
+          emitTimelineEvent("gaze_calibration_complete", {
+            quality: Math.round(avgError),
+            retries: retryCount,
+            low_accuracy: avgError >= 150,
+          });
 
           setStage("done");
           setTimeout(() => onComplete(calibrated), 800);
@@ -255,13 +320,13 @@ export default function GazeCalibration({ roomId, onComplete }: GazeCalibrationP
           <h2 className="text-xl font-semibold text-white">Camera Setup</h2>
 
           <div className="w-48 h-36 rounded-xl bg-zinc-800 border border-white/[0.06] overflow-hidden flex items-center justify-center">
-            {streamRef.current ? (
+            {cameraStream ? (
               <video
                 autoPlay
                 playsInline
                 muted
                 ref={(el) => {
-                  if (el && streamRef.current) el.srcObject = streamRef.current;
+                  if (el && cameraStream) el.srcObject = cameraStream;
                 }}
                 className="w-full h-full object-cover -scale-x-100"
               />

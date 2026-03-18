@@ -22,22 +22,79 @@ function extractSlugFromUrl(url: string): string | null {
   return m ? m[1] : null;
 }
 
-function htmlToPlainText(html: string): string {
+const HTML_ENTITIES: Record<string, string> = {
+  "&nbsp;": " ", "&lt;": "<", "&gt;": ">", "&amp;": "&", "&quot;": '"',
+  "&apos;": "'", "&le;": "≤", "&ge;": "≥", "&ne;": "≠", "&hellip;": "…",
+  "&ldquo;": "\u201C", "&rdquo;": "\u201D", "&lsquo;": "\u2018", "&rsquo;": "\u2019",
+  "&mdash;": "—", "&ndash;": "–", "&times;": "×", "&divide;": "÷",
+  "&infin;": "∞", "&larr;": "←", "&rarr;": "→", "&lArr;": "⇐", "&rArr;": "⇒",
+};
+
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&[a-zA-Z]+;/g, (ent) => HTML_ENTITIES[ent] ?? ent)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
+function htmlToMarkdown(html: string): string {
   if (!html) return "";
-  return html
-    .replace(/<pre[^>]*>[\s\S]*?<\/pre>/gi, (pre) => {
-      const text = pre.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
-      return "\n```\n" + text + "\n```\n";
-    })
-    .replace(/<code>/gi, "`")
-    .replace(/<\/code>/gi, "`")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
+
+  let md = html;
+
+  // Pre blocks → fenced code blocks (handle before stripping other tags)
+  md = md.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_, inner) => {
+    const code = inner.replace(/<[^>]+>/g, "");
+    return "\n```\n" + decodeEntities(code).trim() + "\n```\n";
+  });
+
+  // Inline code (outside pre blocks)
+  md = md.replace(/<code>([\s\S]*?)<\/code>/gi, (_, inner) => {
+    return "`" + decodeEntities(inner.replace(/<[^>]+>/g, "")) + "`";
+  });
+
+  // Superscripts → caret notation (e.g. 10<sup>4</sup> → 10^4)
+  md = md.replace(/<sup>([\s\S]*?)<\/sup>/gi, (_, inner) => "^" + inner.replace(/<[^>]+>/g, ""));
+
+  // Bold
+  md = md.replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, (_, __, inner) => "**" + inner + "**");
+
+  // Italic
+  md = md.replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, (_, __, inner) => "*" + inner + "*");
+
+  // Unordered lists
+  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, inner) => {
+    return "\n" + inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m: string, li: string) => {
+      return "- " + li.replace(/<[^>]+>/g, "").trim() + "\n";
+    }).trim() + "\n";
+  });
+
+  // Ordered lists
+  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, inner) => {
+    let idx = 0;
+    return "\n" + inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m: string, li: string) => {
+      idx++;
+      return idx + ". " + li.replace(/<[^>]+>/g, "").trim() + "\n";
+    }).trim() + "\n";
+  });
+
+  // Paragraphs → double newline
+  md = md.replace(/<p[^>]*>/gi, "\n\n");
+  md = md.replace(/<\/p>/gi, "");
+
+  // Line breaks
+  md = md.replace(/<br\s*\/?>/gi, "\n");
+
+  // Strip any remaining HTML tags
+  md = md.replace(/<[^>]+>/g, "");
+
+  // Decode HTML entities
+  md = decodeEntities(md);
+
+  // Normalize excessive blank lines (3+ → 2)
+  md = md.replace(/\n{3,}/g, "\n\n");
+
+  return md.trim();
 }
 
 function parseExampleTestcases(
@@ -185,7 +242,7 @@ export async function POST(req: NextRequest) {
 
     const problem: Problem = {
       title: q.title,
-      description: q.content ? htmlToPlainText(q.content) : "",
+      description: q.content ? htmlToMarkdown(q.content) : "",
       examples,
       hiddenTests,
       ...(difficulty ? { difficulty } : {}),

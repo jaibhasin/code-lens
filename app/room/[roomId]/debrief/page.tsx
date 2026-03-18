@@ -6,7 +6,7 @@
  *
  * ROLE-BASED VIEWS:
  *   - Interviewer (default): full view with all scores, analysis, integrity
- *   - Candidate (?role=candidate): simplified — score, verdict, summary only
+ *   - Candidate (?role=candidate): "Session Complete" screen — no evaluation data
  *
  * GLASSMORPHISM:
  *   - All section cards: .glass replacing bg-zinc-900/60 border-zinc-800
@@ -162,6 +162,33 @@ export default function DebriefPage() {
     load();
     return () => clearInterval(id);
   }, [roomId]);
+
+  // ── Candidate view — no evaluation, just a "session complete" screen ────
+  if (viewRole === "candidate") {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <div className="p-10 rounded-2xl glass flex flex-col items-center gap-6 max-w-md animate-fade-in-up">
+          <div className="flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+            <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-semibold text-zinc-100">Session Complete</h1>
+          <p className="text-center text-zinc-400 text-sm leading-relaxed">
+            Your session has been recorded. The interviewer will review your work.
+          </p>
+          {room && (
+            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-sm text-zinc-500">
+              {room.candidateName && <span>{room.candidateName}</span>}
+              {room.candidateName && room.problem?.title && <span>·</span>}
+              {room.problem?.title && <span>{room.problem.title}</span>}
+            </div>
+          )}
+          <p className="text-zinc-600 text-xs mt-2">You may close this tab.</p>
+        </div>
+      </main>
+    );
+  }
 
   const debrief = room?.debrief as Debrief | null;
   const isReady = debrief && debrief.status !== "generating";
@@ -361,14 +388,18 @@ export default function DebriefPage() {
       )}
 
       {/* ── Gaze Analysis — interviewer only ──────────────────────────── */}
-      {viewRole === "interviewer" && (safeRoom.gazeSamples?.length > 0 || safeRoom.gazeCalibrated !== undefined) && (
+      {/* Only show Gaze Analysis when calibration explicitly succeeded OR gaze samples exist.
+         * Previously used `gazeCalibrated !== undefined` which was always true since the
+         * default value in store.ts is `false` (not `undefined`), causing the section
+         * to render even when calibration was skipped. */}
+      {viewRole === "interviewer" && (safeRoom.gazeSamples?.length > 0 || safeRoom.gazeCalibrated === true) && (
         <div className="mt-6 p-5 rounded-xl glass animate-fade-in-up" style={{ animationDelay: "450ms" }}>
           <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-4">
             Gaze Analysis
           </h2>
           <GazeHeatmap
             samples={safeRoom.gazeSamples ?? []}
-            calibrated={safeRoom.gazeCalibrated ?? false}
+            calibrated={safeRoom.gazeCalibrated || (safeRoom.gazeSamples?.length ?? 0) > 0}
           />
         </div>
       )}

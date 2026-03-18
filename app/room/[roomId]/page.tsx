@@ -7,6 +7,8 @@ import type { TestResult } from "@/lib/store";
 import dynamic from "next/dynamic";
 import type { MonacoWithYjsHandle, AwarenessPeer } from "@/components/MonacoWithYjs";
 import { useGazeTracker } from "@/hooks/useGazeTracker";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +62,7 @@ export default function RoomPage() {
   const [peers, setPeers] = useState<AwarenessPeer[]>([]);
   const [copied, setCopied] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [candidateFinished, setCandidateFinished] = useState(false);
   const [candidateName, setCandidateName] = useState("");
   const [showNameGate, setShowNameGate] = useState(role === "candidate");
   const [showCalibration, setShowCalibration] = useState(false);
@@ -297,16 +300,31 @@ export default function RoomPage() {
       alert(`Failed to end session: ${(err as Error).message}. Please try again.`);
       return;
     }
-    router.push(`/room/${roomId}/debrief`);
+    router.push(`/room/${roomId}/debrief?role=interviewer`);
   };
 
   const endAttempt = async () => {
+    const code = editorRef.current?.getCode() ?? room?.code ?? "";
     pushTimelineEvent("end_attempt", {
       reason: "candidate_self_terminated",
-      codeLength: (editorRef.current?.getCode() ?? "").length,
+      codeLength: code.length,
     });
     setShowEndConfirm(false);
-    await endSession();
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateFinished: true, code }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    } catch (err) {
+      alert(`Failed to end attempt: ${(err as Error).message}. Please try again.`);
+      return;
+    }
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    router.push(`/room/${roomId}/debrief?role=candidate`);
   };
 
   const LANG_TEMPLATES: Record<Language, string> = {
@@ -482,6 +500,24 @@ func main() {
 
     return () => clearInterval(id);
   }, [role, roomId, room?.runs?.length, room?.status]);
+
+  /* Poll for candidate finishing their attempt (interviewer side) */
+  useEffect(() => {
+    if (role !== "interviewer") return;
+    if (candidateFinished) return;
+    if (room?.status !== "active") return;
+
+    const id = setInterval(async () => {
+      const r = await fetch(`/api/rooms/${roomId}`).then((x) => x.json()).catch(() => null);
+      if (r?.candidateFinishedAt) {
+        setCandidateFinished(true);
+        setRoom(r);
+        clearInterval(id);
+      }
+    }, 3000);
+
+    return () => clearInterval(id);
+  }, [role, roomId, candidateFinished, room?.status]);
 
   // ── Error state ─────────────────────────────────────────────────────────
   if (error) {
@@ -715,6 +751,17 @@ func main() {
         </div>
       </header>
 
+      {/* ── Candidate finished banner — interviewer only ────────────────── */}
+      {candidateFinished && role === "interviewer" && (
+        <div className="mx-4 mt-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30
+                        flex items-center gap-3 animate-fade-in-up">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
+          <span className="text-sm text-amber-200">
+            {room?.candidateName || "Candidate"} has finished their attempt. You can end the session when ready.
+          </span>
+        </div>
+      )}
+
       {/* ── Two-panel layout ────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 p-4">
 
@@ -776,8 +823,35 @@ func main() {
           <div className="flex-1 min-h-0 overflow-auto flex flex-col">
             <div className="p-4 shrink-0">
               <h3 className="font-medium text-lg">{room.problem.title || "Untitled"}</h3>
-              <div className="mt-2 text-sm text-zinc-300 whitespace-pre-wrap">
-                {room.problem.description || "No description."}
+              <div className="mt-2 text-sm text-zinc-300 prose-problem">
+                {room.problem.description ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => <p className="text-zinc-300 leading-relaxed mb-3">{children}</p>,
+                      strong: ({ children }) => <strong className="text-zinc-100 font-semibold">{children}</strong>,
+                      em: ({ children }) => <em className="text-zinc-200 italic">{children}</em>,
+                      h1: ({ children }) => <h1 className="text-zinc-200 text-lg font-semibold mt-4 mb-2">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-zinc-200 text-base font-semibold mt-4 mb-2">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-zinc-200 text-sm font-semibold mt-3 mb-1">{children}</h3>,
+                      ul: ({ children }) => <ul className="list-disc list-inside text-zinc-400 mb-3 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside text-zinc-400 mb-3 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="text-zinc-300">{children}</li>,
+                      code: ({ children, className }) => {
+                        const isBlock = className?.includes("language-");
+                        if (isBlock) {
+                          return <code className={`block bg-black/30 rounded-lg p-3 text-xs text-zinc-200 overflow-x-auto ${className ?? ""}`}>{children}</code>;
+                        }
+                        return <code className="bg-white/[0.06] border border-white/[0.08] rounded px-1.5 py-0.5 text-xs text-emerald-300">{children}</code>;
+                      },
+                      pre: ({ children }) => <pre className="mb-3">{children}</pre>,
+                    }}
+                  >
+                    {room.problem.description}
+                  </ReactMarkdown>
+                ) : (
+                  <span className="text-zinc-500">No description.</span>
+                )}
               </div>
               {/* Examples — glass-styled blocks */}
               {room.problem.examples.length > 0 && (
@@ -849,7 +923,7 @@ func main() {
               Your progress so far will be saved and reviewed.
             </p>
             <p className="text-center text-zinc-500 text-xs">
-              This cannot be undone. The session will end for both you and the interviewer.
+              This cannot be undone. The interviewer will be notified that you have finished.
             </p>
             <div className="flex gap-3 w-full mt-1">
               <button

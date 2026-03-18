@@ -122,6 +122,12 @@ export async function PATCH(
   if (body.candidateName !== undefined) {
     room.candidateName = body.candidateName;
   }
+  if (body.candidateFinished) {
+    room.candidateFinishedAt = Date.now();
+    if (body.code !== undefined) {
+      room.code = body.code;
+    }
+  }
   if (body.gazeSamples && Array.isArray(body.gazeSamples)) {
     appendGazeSamples(room, body.gazeSamples);
   }

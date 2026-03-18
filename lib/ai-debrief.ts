@@ -319,7 +319,11 @@ function buildIntegritySignals(room: Room): string {
   }
 
   // Gaze tracking signals
-  if (!room.gazeCalibrated) {
+  // Infer calibration success from samples: if gazeSamples exist, tracking ran
+  // successfully regardless of the gazeCalibrated flag (which may be false due
+  // to a transient PATCH failure during calibration).
+  const gazeEffectivelyCalibrated = room.gazeCalibrated || (room.gazeSamples?.length ?? 0) > 0;
+  if (!gazeEffectivelyCalibrated) {
     lines.push("");
     lines.push("Gaze tracking: unavailable — candidate did not complete calibration.");
   } else if (!room.gazeSamples || room.gazeSamples.length === 0) {

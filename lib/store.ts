@@ -52,7 +52,8 @@ export type TimelineEventType =
   | "fullscreen_exit"
   | "gaze_calibration_complete"
   | "gaze_calibration_skipped"
-  | "gaze_off_screen_streak";
+  | "gaze_off_screen_streak"
+  | "end_attempt";
 
 export type GazeZone =
   | "on_screen"
@@ -118,6 +119,8 @@ export interface Room {
   candidateName: string;
   gazeCalibrated: boolean;
   gazeSamples: GazeSample[];
+  /** Timestamp when the candidate self-terminated their attempt (session stays active). */
+  candidateFinishedAt: number | null;
 }
 
 const globalForRooms = globalThis as unknown as { __codelens_rooms?: Map<string, Room> };
@@ -150,6 +153,7 @@ export function createRoom(roomId: string): Room {
     candidateName: "",
     gazeCalibrated: false,
     gazeSamples: [],
+    candidateFinishedAt: null,
   };
   rooms.set(roomId, room);
   return room;
