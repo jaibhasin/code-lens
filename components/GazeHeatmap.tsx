@@ -58,6 +58,33 @@ function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
 
+function computeIntensityReference(intensities: Uint8ClampedArray, percentile: number): number {
+  const hist = new Uint32Array(256);
+  let nonZero = 0;
+  for (let i = 0; i < intensities.length; i++) {
+    const v = intensities[i];
+    if (v > 0) {
+      hist[v] += 1;
+      nonZero += 1;
+    }
+  }
+  if (nonZero === 0) return 1;
+
+  const target = Math.max(1, Math.ceil(nonZero * clamp(percentile, 0.5, 0.999)));
+  let cumulative = 0;
+  for (let i = 1; i < hist.length; i++) {
+    cumulative += hist[i];
+    if (cumulative >= target) return i;
+  }
+  return 255;
+}
+
+function normalizeIntensity(raw: number, reference: number): number {
+  if (raw <= 0 || reference <= 0) return 0;
+  const linear = clamp(raw / reference, 0, 1);
+  return Math.pow(linear, 0.78);
+}
+
 function planeRectToCanvas(rect: GazePlaneModel["screenRectInPlane"]) {
   return {
     x: FIELD_X + rect.left * FIELD_W,
@@ -181,9 +208,15 @@ export default function GazeHeatmap({ samples, calibrated, planeModel }: GazeHea
 
     const imgData = offCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
     const data = imgData.data;
+    const intensities = new Uint8ClampedArray(CANVAS_W * CANVAS_H);
+    for (let i = 0, px = 0; i < data.length; i += 4, px++) {
+      intensities[px] = data[i];
+    }
+    const intensityReference = computeIntensityReference(intensities, 0.94);
     for (let i = 0; i < data.length; i += 4) {
       const intensity = data[i];
-      const [r, g, b, a] = intensityToRGBA(intensity);
+      const normalized = normalizeIntensity(intensity, intensityReference);
+      const [r, g, b, a] = intensityToRGBA(Math.round(normalized * 255));
       data[i] = r;
       data[i + 1] = g;
       data[i + 2] = b;
@@ -229,11 +262,15 @@ export default function GazeHeatmap({ samples, calibrated, planeModel }: GazeHea
       const pt = sampleToCanvas(sample, activePlaneModel);
       if (!pt) continue;
       const sampleWeight = typeof sample.conf === "number" ? clamp(sample.conf, 0.15, 1) : 1;
+      const px = clamp(Math.round(pt.cx), 0, CANVAS_W - 1);
+      const py = clamp(Math.round(pt.cy), 0, CANVAS_H - 1);
+      const intensity = intensities[py * CANVAS_W + px] ?? 0;
+      const normalized = normalizeIntensity(intensity, intensityReference);
+      const [r, g, b] = intensityToRGBA(Math.round(normalized * 255));
+      const dotAlpha = (0.16 + 0.24 * normalized) * sampleWeight;
 
       ctx.beginPath();
-      ctx.fillStyle = sample.insideScreen
-        ? `rgba(255,255,255,${0.22 * sampleWeight})`
-        : `rgba(148,163,184,${0.22 * sampleWeight})`;
+      ctx.fillStyle = `rgba(${r},${g},${b},${dotAlpha})`;
       ctx.arc(pt.cx, pt.cy, 1.8, 0, Math.PI * 2);
       ctx.fill();
     }

@@ -18,6 +18,8 @@
 - Surface `observed_fit` versus `approximate_fallback` in the UI because low-confidence observed fits and true fallback geometry are materially different states for future experiments and reviewer trust.
 - Keep the heatmap interviewer-only because nothing in this session changed the earlier product decision to avoid exposing gaze analytics to the candidate view.
 - Update the handoff note in `docs/` and the working note in `future_improvements/` because this session is laying the foundation for future heatmap experiments, provider swaps, and reliability work.
+- Move dot coloring from binary on/off-screen tinting to density-based coloring because users read the dot layer as part of the heatmap and expect clear hotspot variance.
+- Add percentile-based intensity normalization before colormap lookup because low-variance sessions can otherwise compress colors into a narrow range and look uniform.
 
 ## Implemented this session
 - `lib/gaze-plane.ts` — created a tested front-plane geometry module that builds the outer viewing field, embeds the inferred laptop rectangle, projects gaze samples, smooths normalized points, and falls back explicitly when calibration evidence is insufficient or implausible.
@@ -34,6 +36,7 @@
 - `package-lock.json` — updated lockfile for the new `vitest` dependency.
 - `next-env.d.ts` — changed as part of the build/tooling refresh after adding test/build verification in this session.
 - `future_improvements/eye-tracking-reliability-plan.md` — updated the working note with the front-plane heatmap decisions, implementation summary, open questions, and rejected approaches from this session.
+- `components/GazeHeatmap.tsx` — changed sample-point rendering to use the same density colormap as the heat field, with percentile-normalized intensity scaling so clustered regions render hotter and sparse regions stay cooler even when confidence weighting is applied.
 
 ## Open questions
 - Whether the current validation targets are enough for a high-fidelity front-plane fit or whether the calibration grid should become denser in a future session.
@@ -43,6 +46,7 @@
 - Whether a replay/debug page should be added so future work can inspect raw points, smoothed points, and projected points without waiting for a full interview session.
 - Whether `WebGazer` should remain the long-term provider once the front-plane visualization stabilizes, or whether the planned MediaPipe-based approach should replace it for better landmark stability and licensing clarity.
 - Whether GET payload size will become a problem now that gaze samples carry more data and whether a dedicated heatmap endpoint should be introduced later.
+- Whether the intensity normalization percentile should remain fixed (`0.94`) or become an adaptive/session-tunable value after collecting more real interview sessions.
 
 ## Rejected approaches
 - Keep the old `on_screen` plus `off_left/off_right/off_top/off_bottom` visualization as the main heatmap model because it cannot represent the front-of-user plane the user asked for.
@@ -52,3 +56,4 @@
 - Rely only on the initial calibration PATCH to persist the fitted geometry because short sessions, retry exhaustion, or unload paths could make capture and debrief diverge.
 - Start with a large formal dataset effort before improving the geometry pipeline because the immediate need was to build a believable front-plane heatmap foundation first.
 - Replace `WebGazer` immediately in this session because the user’s main goal was the heatmap representation, and the provider swap would have expanded scope beyond what was needed to lay the first front-plane foundation.
+- Keep binary per-dot colors (`insideScreen` white / off-screen slate) because that visual encoding can appear almost uniform and does not communicate dwell-density differences clearly.
